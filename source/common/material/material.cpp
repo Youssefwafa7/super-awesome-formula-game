@@ -3,12 +3,18 @@
 #include "../asset-loader.hpp"
 #include "deserialize-utils.hpp"
 
+#include <iostream>
+
 namespace our {
 
     // This function should setup the pipeline state and set the shader to be used
     void Material::setup() const {
         //TODO: (Req 7) Write this function
         pipelineState.setup();
+        if(!shader){
+            std::cerr << "ERROR: Material has no shader (nullptr)" << std::endl;
+            return;
+        }
         shader->use();
     }
 
@@ -28,7 +34,7 @@ namespace our {
     void TintedMaterial::setup() const {
         //TODO: (Req 7) Write this function
         Material::setup();
-        shader->set("tint", tint);
+        if(shader) shader->set("tint", tint);
     }
 
     // This function read the material data from a json object
@@ -44,11 +50,15 @@ namespace our {
     void TexturedMaterial::setup() const {
         //TODO: (Req 7) Write this function
         TintedMaterial::setup();
-        shader->set("alphaThreshold", alphaThreshold);
+        if(shader) shader->set("alphaThreshold", alphaThreshold);
         glActiveTexture(GL_TEXTURE0);
-        texture->bind();
-        sampler->bind(0);
-        shader->set("tex", 0);
+        if(texture) texture->bind();
+        else glBindTexture(GL_TEXTURE_2D, 0);
+
+        if(sampler) sampler->bind(0);
+        else glBindSampler(0, 0);
+
+        if(shader) shader->set("tex", 0);
     }
 
     // This function read the material data from a json object
