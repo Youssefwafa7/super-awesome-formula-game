@@ -7,6 +7,8 @@
 #include <iostream>
 #include <vector>
 #include <unordered_map>
+#include <filesystem>
+#include <algorithm>
 
 our::Mesh* our::mesh_utils::loadOBJ(const std::string& filename) {
 
@@ -25,7 +27,14 @@ our::Mesh* our::mesh_utils::loadOBJ(const std::string& filename) {
     std::vector<tinyobj::material_t> materials;
     std::string warn, err;
 
-    if (!tinyobj::LoadObj(&attrib, &shapes, &materials, &warn, &err, filename.c_str())) {
+    std::string base_dir;
+    {
+        std::filesystem::path p(filename);
+        auto parent = p.parent_path();
+        base_dir = parent.empty() ? std::string("./") : (parent.string() + std::string("/"));
+    }
+
+    if (!tinyobj::LoadObj(&attrib, &shapes, &materials, &warn, &err, filename.c_str(), base_dir.c_str(), true)) {
         std::cerr << "Failed to load obj file \"" << filename << "\" due to error: " << err << std::endl;
         return nullptr;
     }
@@ -47,24 +56,38 @@ our::Mesh* our::mesh_utils::loadOBJ(const std::string& filename) {
                     attrib.vertices[3 * index.vertex_index + 2]
             };
 
-            vertex.normal = {
-                    attrib.normals[3 * index.normal_index + 0],
-                    attrib.normals[3 * index.normal_index + 1],
-                    attrib.normals[3 * index.normal_index + 2]
-            };
+            if(index.normal_index >= 0 && (3 * index.normal_index + 2) < (int)attrib.normals.size()){
+                vertex.normal = {
+                        attrib.normals[3 * index.normal_index + 0],
+                        attrib.normals[3 * index.normal_index + 1],
+                        attrib.normals[3 * index.normal_index + 2]
+                };
+            } else {
+                vertex.normal = {0, 0, 1};
+            }
 
-            vertex.tex_coord = {
-                    attrib.texcoords[2 * index.texcoord_index + 0],
-                    attrib.texcoords[2 * index.texcoord_index + 1]
-            };
+            if(index.texcoord_index >= 0 && (2 * index.texcoord_index + 1) < (int)attrib.texcoords.size()){
+                vertex.tex_coord = {
+                        attrib.texcoords[2 * index.texcoord_index + 0],
+                        attrib.texcoords[2 * index.texcoord_index + 1]
+                };
+            } else {
+                vertex.tex_coord = {0, 0};
+            }
 
-
-            vertex.color = {
-                    attrib.colors[3 * index.vertex_index + 0] * 255,
-                    attrib.colors[3 * index.vertex_index + 1] * 255,
-                    attrib.colors[3 * index.vertex_index + 2] * 255,
-                    255
-            };
+            if((3 * index.vertex_index + 2) < (int)attrib.colors.size()){
+                float r = attrib.colors[3 * index.vertex_index + 0] * 255.0f;
+                float g = attrib.colors[3 * index.vertex_index + 1] * 255.0f;
+                float b = attrib.colors[3 * index.vertex_index + 2] * 255.0f;
+                vertex.color = {
+                        (glm::uint8)std::clamp(r, 0.0f, 255.0f),
+                        (glm::uint8)std::clamp(g, 0.0f, 255.0f),
+                        (glm::uint8)std::clamp(b, 0.0f, 255.0f),
+                        255
+                };
+            } else {
+                vertex.color = {255, 255, 255, 255};
+            }
 
             // See if we already stored a similar vertex
             auto it = vertex_map.find(vertex);
