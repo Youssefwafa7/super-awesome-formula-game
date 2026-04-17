@@ -10,6 +10,14 @@
 #include <filesystem>
 #include <algorithm>
 
+namespace {
+    struct SubMeshBuild {
+        std::vector<our::Vertex> vertices;
+        std::vector<GLuint> elements;
+        std::unordered_map<our::Vertex, GLuint> vertex_map;
+    };
+}
+
 our::Mesh* our::mesh_utils::loadOBJ(const std::string& filename) {
 
     // The data that we will use to initialize our mesh
@@ -105,6 +113,136 @@ our::Mesh* our::mesh_utils::loadOBJ(const std::string& filename) {
     }
 
     return new our::Mesh(vertices, elements);
+}
+
+std::vector<our::mesh_utils::OBJSubMesh> our::mesh_utils::loadOBJWithMaterials(const std::string& filename){
+
+    // The data loaded by Tiny OBJ Loader
+    tinyobj::attrib_t attrib;
+    std::vector<tinyobj::shape_t> shapes;
+    std::vector<tinyobj::material_t> materials;
+    std::string warn, err;
+
+    std::string base_dir;
+    {
+        std::filesystem::path p(filename);
+        auto parent = p.parent_path();
+        base_dir = parent.empty() ? std::string("./") : (parent.string() + std::string("/"));
+    }
+
+    if (!tinyobj::LoadObj(&attrib, &shapes, &materials, &warn, &err, filename.c_str(), base_dir.c_str(), true)) {
+        std::cerr << "Failed to load obj file \"" << filename << "\" due to error: " << err << std::endl;
+        return {};
+    }
+    if (!warn.empty()) {
+        std::cout << "WARN while loading obj file \"" << filename << "\": " << warn << std::endl;
+    }
+
+    // Group geometry by material id. tinyobj uses -1 when no material is assigned.
+    // We map material_id -> build buffers.
+    std::unordered_map<int, SubMeshBuild> builds;
+
+    for(const auto& shape : shapes){
+        size_t index_offset = 0;
+        const size_t face_count = shape.mesh.num_face_vertices.size();
+        for(size_t f = 0; f < face_count; f++){
+            int fv = shape.mesh.num_face_vertices[f];
+            int mat_id = -1;
+            if(f < shape.mesh.material_ids.size()) mat_id = shape.mesh.material_ids[f];
+
+            auto& build = builds[mat_id];
+
+            for(int v = 0; v < fv; v++){
+                const tinyobj::index_t idx = shape.mesh.indices[index_offset + v];
+                our::Vertex vertex = {};
+
+                // Position
+                if(idx.vertex_index >= 0 && (3 * idx.vertex_index + 2) < (int)attrib.vertices.size()){
+                    vertex.position = {
+                        attrib.vertices[3 * idx.vertex_index + 0],
+                        attrib.vertices[3 * idx.vertex_index + 1],
+                        attrib.vertices[3 * idx.vertex_index + 2]
+                    };
+                } else {
+                    vertex.position = {0, 0, 0};
+                }
+
+                // Normal
+                if(idx.normal_index >= 0 && (3 * idx.normal_index + 2) < (int)attrib.normals.size()){
+                    vertex.normal = {
+                        attrib.normals[3 * idx.normal_index + 0],
+                        attrib.normals[3 * idx.normal_index + 1],
+                        attrib.normals[3 * idx.normal_index + 2]
+                    };
+                } else {
+                    vertex.normal = {0, 0, 1};
+                }
+
+                // TexCoord
+                if(idx.texcoord_index >= 0 && (2 * idx.texcoord_index + 1) < (int)attrib.texcoords.size()){
+                    vertex.tex_coord = {
+                        attrib.texcoords[2 * idx.texcoord_index + 0],
+                        attrib.texcoords[2 * idx.texcoord_index + 1]
+                    };
+                } else {
+                    vertex.tex_coord = {0, 0};
+                }
+
+                // Color (if present in the OBJ)
+                if(idx.vertex_index >= 0 && (3 * idx.vertex_index + 2) < (int)attrib.colors.size()){
+                    float r = attrib.colors[3 * idx.vertex_index + 0] * 255.0f;
+                    float g = attrib.colors[3 * idx.vertex_index + 1] * 255.0f;
+                    float b = attrib.colors[3 * idx.vertex_index + 2] * 255.0f;
+                    vertex.color = {
+                        (glm::uint8)std::clamp(r, 0.0f, 255.0f),
+                        (glm::uint8)std::clamp(g, 0.0f, 255.0f),
+                        (glm::uint8)std::clamp(b, 0.0f, 255.0f),
+                        255
+                    };
+                } else {
+                    vertex.color = {255, 255, 255, 255};
+                }
+
+                // Deduplicate vertex per-submesh
+                auto it = build.vertex_map.find(vertex);
+                if(it == build.vertex_map.end()){
+                    auto new_vertex_index = static_cast<GLuint>(build.vertices.size());
+                    build.vertex_map[vertex] = new_vertex_index;
+                    build.elements.push_back(new_vertex_index);
+                    build.vertices.push_back(vertex);
+                } else {
+                    build.elements.push_back(it->second);
+                }
+            }
+
+            index_offset += fv;
+        }
+    }
+
+    std::vector<OBJSubMesh> result;
+    result.reserve(builds.size());
+
+    for(auto& [mat_id, build] : builds){
+        if(build.elements.empty() || build.vertices.empty()) continue;
+        OBJSubMesh sub;
+        sub.mesh = new our::Mesh(build.vertices, build.elements);
+
+        if(mat_id >= 0 && mat_id < (int)materials.size()){
+            const auto& mat = materials[mat_id];
+            sub.materialName = mat.name;
+            sub.diffuseColor = glm::vec3(mat.diffuse[0], mat.diffuse[1], mat.diffuse[2]);
+            if(!mat.diffuse_texname.empty()){
+                // Resolve relative to base_dir.
+                sub.diffuseTexturePath = base_dir + mat.diffuse_texname;
+            }
+        } else {
+            sub.materialName = "__default";
+            sub.diffuseColor = glm::vec3(1.0f);
+        }
+        result.push_back(std::move(sub));
+    }
+
+    return result;
 }
 
 // Create a sphere (the vertex order in the triangles are CCW from the outside)

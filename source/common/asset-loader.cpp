@@ -11,6 +11,15 @@
 
 namespace our {
 
+    static std::unordered_map<std::string, std::string> g_meshAssetPaths;
+
+    const std::string* getMeshAssetPath(const std::string& name){
+        if(auto it = g_meshAssetPaths.find(name); it != g_meshAssetPaths.end()){
+            return &it->second;
+        }
+        return nullptr;
+    }
+
     // This will load all the shaders defined in "data"
     // data must be in the form:
     //    { shader_name : { "vs" : "path/to/vertex-shader", "fs" : "path/to/fragment-shader" }, ... }
@@ -68,6 +77,7 @@ namespace our {
         if(data.is_object()){
             for(auto& [name, desc] : data.items()){
                 std::string path = desc.get<std::string>();
+                g_meshAssetPaths[name] = path;
                 assets[name] = mesh_utils::loadOBJ(path);
             }
         }
@@ -117,6 +127,8 @@ namespace our {
         AssetLoader<Sampler>::clear();
         AssetLoader<Mesh>::clear();
         AssetLoader<Material>::clear();
+
+        g_meshAssetPaths.clear();
     }
 
 }

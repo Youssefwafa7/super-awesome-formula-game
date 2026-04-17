@@ -6,6 +6,10 @@
 
 namespace our {
 
+    // Returns the original source path used to load a mesh asset (from the "assets.meshes" section).
+    // Useful when a component needs the filename (e.g., to load accompanying .mtl files for an OBJ).
+    const std::string* getMeshAssetPath(const std::string& name);
+
     // This static template class will hold the loaded assets
     // and can be called from anywhere to get an asset by its name.
     // Since we have different types of assets, this declared as a template class

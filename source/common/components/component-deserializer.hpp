@@ -3,6 +3,7 @@
 #include "../ecs/entity.hpp"
 #include "camera.hpp"
 #include "mesh-renderer.hpp"
+#include "multi-mesh-renderer.hpp"
 #include "free-camera-controller.hpp"
 #include "movement.hpp"
 
@@ -22,6 +23,8 @@ namespace our {
             component = entity->addComponent<MovementComponent>();
         } else if (type == MeshRendererComponent::getID()) {
             component = entity->addComponent<MeshRendererComponent>();
+        } else if (type == MultiMeshRendererComponent::getID()) {
+            component = entity->addComponent<MultiMeshRendererComponent>();
         }
         if(component) component->deserialize(data);
     }
