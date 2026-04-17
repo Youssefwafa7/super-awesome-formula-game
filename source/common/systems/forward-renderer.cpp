@@ -131,7 +131,7 @@ namespace our {
                 for(const auto& part : multi->parts){
                     if(part.mesh == nullptr || part.material == nullptr) continue;
                     RenderCommand command;
-                    command.localToWorld = multi->getOwner()->getLocalToWorldMatrix();
+                    command.localToWorld = multi->getOwner()->getLocalToWorldMatrix() * part.localTransform.toMat4();
                     command.center = glm::vec3(command.localToWorld * glm::vec4(0, 0, 0, 1));
                     command.mesh = part.mesh;
                     command.material = part.material;

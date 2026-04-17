@@ -1,13 +1,20 @@
 #include "multi-mesh-renderer.hpp"
 
 #include "../deserialize-utils.hpp"
+#include "../ecs/entity.hpp"
 
 #include <glad/gl.h>
 #include <glm/vec4.hpp>
+#include <glm/vec3.hpp>
 
 #include <iostream>
+#include <algorithm>
 
 namespace our {
+
+    static bool containsString(const std::vector<std::string>& list, const std::string& value){
+        return std::find(list.begin(), list.end(), value) != list.end();
+    }
 
     Texture2D* MultiMeshRendererComponent::getFallbackWhiteTexture(){
         if(fallbackWhiteTexture) return fallbackWhiteTexture;
@@ -56,6 +63,19 @@ namespace our {
             objPath = *resolved;
         }
 
+        sourceObjPath = objPath;
+
+        excludeObjects.clear();
+        excludeMaterials.clear();
+        debugPrintParts = data.value("debugPrintParts", false);
+
+        if(data.contains("excludeObjects") && data["excludeObjects"].is_array()){
+            excludeObjects = data["excludeObjects"].get<std::vector<std::string>>();
+        }
+        if(data.contains("excludeMaterials") && data["excludeMaterials"].is_array()){
+            excludeMaterials = data["excludeMaterials"].get<std::vector<std::string>>();
+        }
+
         const std::string shaderName = data.value("shader", "textured");
         const std::string samplerName = data.value("sampler", "default");
 
@@ -87,11 +107,33 @@ namespace our {
             return;
         }
 
+        if(debugPrintParts){
+            const std::string entityName = (getOwner() ? getOwner()->name : std::string("<null>"));
+            std::cerr << "[MultiMeshRendererComponent] Submeshes for entity \"" << entityName << "\" from: " << objPath << std::endl;
+            for(size_t i = 0; i < submeshes.size(); i++){
+                const auto& s = submeshes[i];
+                const bool excludedByObject = (!excludeObjects.empty() && containsString(excludeObjects, s.objectName));
+                const bool excludedByMaterial = (!excludeMaterials.empty() && containsString(excludeMaterials, s.materialName));
+                std::cerr << "  [" << i << "] object=\"" << s.objectName << "\" material=\"" << s.materialName
+                          << "\" tex=\"" << s.diffuseTexturePath << "\" pivot=(" << s.pivot.x << "," << s.pivot.y << "," << s.pivot.z << ")"
+                          << " size=(" << s.aabbSize.x << "," << s.aabbSize.y << "," << s.aabbSize.z << ")"
+                          << (excludedByObject || excludedByMaterial ? "  [EXCLUDED]" : "")
+                          << std::endl;
+            }
+        }
+
         parts.clear();
         parts.reserve(submeshes.size());
 
         for(auto& sub : submeshes){
             if(sub.mesh == nullptr) continue;
+
+            const bool excludedByObject = (!excludeObjects.empty() && containsString(excludeObjects, sub.objectName));
+            const bool excludedByMaterial = (!excludeMaterials.empty() && containsString(excludeMaterials, sub.materialName));
+            if(excludedByObject || excludedByMaterial){
+                delete sub.mesh;
+                continue;
+            }
 
             auto* mat = new TexturedMaterial();
             mat->shader = shader;
@@ -108,7 +150,24 @@ namespace our {
 
             ownedMeshes.push_back(sub.mesh);
             ownedMaterials.push_back(mat);
-            parts.push_back({sub.mesh, mat});
+
+            Part part;
+            part.mesh = sub.mesh;
+            part.material = mat;
+            part.objectName = sub.objectName;
+            part.materialName = sub.materialName;
+            part.localTransform.position = sub.pivot;
+            part.localTransform.rotation = glm::vec3(0.0f);
+            part.localTransform.scale = glm::vec3(1.0f);
+            part.aabbSize = sub.aabbSize;
+            parts.push_back(std::move(part));
+
+            if(debugPrintParts){
+                std::cerr << "  [" << (parts.size() - 1) << "] object=\"" << sub.objectName << "\" material=\"" << sub.materialName
+                          << "\" tex=\"" << sub.diffuseTexturePath << "\""
+                          << " pivot=(" << sub.pivot.x << "," << sub.pivot.y << "," << sub.pivot.z << ")"
+                          << " size=(" << sub.aabbSize.x << "," << sub.aabbSize.y << "," << sub.aabbSize.z << ")" << std::endl;
+            }
         }
     }
 
