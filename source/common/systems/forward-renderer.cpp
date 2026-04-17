@@ -1,6 +1,7 @@
 #include "forward-renderer.hpp"
 #include "../mesh/mesh-utils.hpp"
 #include "../texture/texture-utils.hpp"
+#include "../components/multi-mesh-renderer.hpp"
 
 namespace our {
 
@@ -124,8 +125,29 @@ namespace our {
         for(auto entity : world->getEntities()){
             // If we hadn't found a camera yet, we look for a camera in this entity
             if(!camera) camera = entity->getComponent<CameraComponent>();
+
+            // If this entity has a multi-mesh renderer component
+            if(auto multi = entity->getComponent<MultiMeshRendererComponent>(); multi){
+                for(const auto& part : multi->parts){
+                    if(part.mesh == nullptr || part.material == nullptr) continue;
+                    RenderCommand command;
+                    command.localToWorld = multi->getOwner()->getLocalToWorldMatrix();
+                    command.center = glm::vec3(command.localToWorld * glm::vec4(0, 0, 0, 1));
+                    command.mesh = part.mesh;
+                    command.material = part.material;
+                    if(command.material->transparent){
+                        transparentCommands.push_back(command);
+                    } else {
+                        opaqueCommands.push_back(command);
+                    }
+                }
+            }
+
             // If this entity has a mesh renderer component
             if(auto meshRenderer = entity->getComponent<MeshRendererComponent>(); meshRenderer){
+                // If either the mesh or material is missing, skip this renderer.
+                // (Mesh/material pointers come from AssetLoader and can be nullptr if the asset name is wrong or failed to load.)
+                if(meshRenderer->mesh == nullptr || meshRenderer->material == nullptr) continue;
                 // We construct a command from it
                 RenderCommand command;
                 command.localToWorld = meshRenderer->getOwner()->getLocalToWorldMatrix();
