@@ -80,6 +80,12 @@ set(COMMON_SOURCES
         source/common/components/mesh-renderer.cpp
         source/common/components/multi-mesh-renderer.hpp
         source/common/components/multi-mesh-renderer.cpp
+        source/common/components/chase-camera.hpp
+        source/common/components/chase-camera.cpp
+        source/common/components/track-heightfield.hpp
+        source/common/components/track-heightfield.cpp
+        source/common/components/car-controller.hpp
+        source/common/components/car-controller.cpp
         source/common/components/free-camera-controller.hpp
         source/common/components/free-camera-controller.cpp
         source/common/components/movement.hpp
@@ -90,6 +96,8 @@ set(COMMON_SOURCES
         source/common/systems/forward-renderer.cpp
         source/common/systems/free-camera-controller.hpp
         source/common/systems/movement.hpp
+        source/common/systems/car-controller.hpp
+        source/common/systems/chase-camera.hpp
 )
 
 # Define the directories in which to search for the included headers

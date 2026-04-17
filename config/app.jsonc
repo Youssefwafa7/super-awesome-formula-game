@@ -25,14 +25,8 @@
                     "fs":"assets/shaders/textured.frag"
                 }
             },
-            "textures":{
-                "grass": "assets/textures/grass_ground_d.jpg",
-                "sf23_baseColor": "assets/models/sf23/Body_PBR_Material_baseColor.png",
-                "mclaren_baseColor": "assets/models/mclaren/Material_baseColor.png"
-            },
             "meshes":{
-                "sf23_car": "assets/models/sf23/scuderia_ferrari_f1_sf23_2023.obj",
-                "mclaren_car": "assets/models/mclaren/mclaren_mcl60_f1_2023.obj"
+                "cube": "assets/models/cube.obj"
             },
             "samplers":{
                 "default":{},
@@ -41,9 +35,9 @@
                 }
             },
             "materials":{
-                "grass":{
-                    "type": "textured",
-                    "shader": "textured",
+                "player_cube":{
+                    "type": "tinted",
+                    "shader": "tinted",
                     "pipelineState": {
                         "faceCulling":{
                             "enabled": false
@@ -52,62 +46,60 @@
                             "enabled": true
                         }
                     },
-                    "tint": [1, 1, 1, 1],
-                    "texture": "grass",
-                    "sampler": "default"
-                },
-                "sf23_car":{
-                    "type": "textured",
-                    "shader": "textured",
-                    "pipelineState": {
-                        "faceCulling":{
-                            "enabled": false
-                        },
-                        "depthTesting":{
-                            "enabled": true
-                        }
-                    },
-                    "tint": [1, 1, 1, 1],
-                    "texture": "sf23_baseColor",
-                    "sampler": "default"
-                },
-                "mclaren_car":{
-                    "type": "textured",
-                    "shader": "textured",
-                    "pipelineState": {
-                        "faceCulling":{
-                            "enabled": false
-                        },
-                        "depthTesting":{
-                            "enabled": true
-                        }
-                    },
-                    "tint": [1, 1, 1, 1],
-                    "texture": "mclaren_baseColor",
-                    "sampler": "default"
+                    "tint": [0.9, 0.1, 0.1, 1.0]
                 }
             }
         },
         "world":[
             {
+                "name": "main_camera",
                 "position": [0, 0, 10],
                 "components": [
                     {
                         "type": "Camera"
                     },
                     {
-                        "type": "Free Camera Controller"
+                        "type": "Chase Camera",
+                        "target": "player",
+                        "offset": [0.0, 1.6, -3.5],
+                        "lockRotation": true,
+                        "pitch": -0.25,
+                        "lookAtOffset": [0.0, 0.7, 0.6]
                     }
                 ]        
             },
             {
-                "position": [5, -0.99, 5],
+                "name": "player",
+                "position": [0.0, 1.0, 0.0],
                 "rotation": [0, 0, 0],
-                "scale": [1, 1, 1],
+                "scale": [0.4, 0.2, 0.8],
+                "components": [
+                    {
+                        "type": "Car Controller",
+                        "acceleration": 14.0,
+                        "brakeAcceleration": 20.0,
+                        "maxSpeed": 20.0,
+                        "maxReverseSpeed": 7.0,
+                        "turnSpeed": 2.2,
+                        "linearDamping": 4.0,
+                        "groundClearance": 0.12
+                    },
+                    {
+                        "type": "Mesh Renderer",
+                        "mesh": "cube",
+                        "material": "player_cube"
+                    }
+                ]
+            },
+            {
+                "name": "starting_line",
+                "position": [0.0, 0.02, 0.0],
+                "rotation": [0, 0, 0],
+                "scale": [0.02, 0.02, 0.02],
                 "components": [
                     {
                         "type": "Multi Mesh Renderer",
-                        "mesh": "sf23_car",
+                        "obj": "assets/models/starting_line/starting_line.obj",
                         "shader": "textured",
                         "sampler": "default",
                         "pipelineState": {
@@ -123,35 +115,20 @@
                 ]
             },
             {
-                "position": [0, -0.99, 5],
+                "name": "track",
+                "position": [-18.04, 0.0, -26.12],
                 "rotation": [0, 0, 0],
-                "scale": [1.3, 1.3, 1.3],
+                "scale": [50.0, 50.0, 50.0],
                 "components": [
                     {
-                        "type": "Multi Mesh Renderer",
-                        "mesh": "mclaren_car",
-                        "shader": "textured",
-                        "sampler": "default",
-                        "pipelineState": {
-                            "faceCulling":{
-                                "enabled": false
-                            },
-                            "depthTesting":{
-                                "enabled": true
-                            }
-                        },
-                        "tint": [1, 1, 1, 1]
-                    }
-                ]
-            },
-            {
-                "position": [-9.295, 1.386, 1.512],
-                "rotation": [0, 0, 0],
-                "scale": [0.015, 0.015, 0.015],
-                "components": [
+                        "type": "Track Heightfield",
+                        "obj": "assets/models/race_trackkarting_track_based_on_south_garda/race_trackkarting_track_based_on_south_garda.obj",
+                        "cellSize": 0.5,
+                        "minNormalY": 0.6
+                    },
                     {
                         "type": "Multi Mesh Renderer",
-                        "obj": "assets/models/sochi/sochi.obj",
+                        "obj": "assets/models/race_trackkarting_track_based_on_south_garda/race_trackkarting_track_based_on_south_garda.obj",
                         "shader": "textured",
                         "sampler": "default",
                         "pipelineState": {

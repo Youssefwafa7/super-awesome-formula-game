@@ -4,6 +4,9 @@
 #include "camera.hpp"
 #include "mesh-renderer.hpp"
 #include "multi-mesh-renderer.hpp"
+#include "chase-camera.hpp"
+#include "track-heightfield.hpp"
+#include "car-controller.hpp"
 #include "free-camera-controller.hpp"
 #include "movement.hpp"
 
@@ -25,6 +28,12 @@ namespace our {
             component = entity->addComponent<MeshRendererComponent>();
         } else if (type == MultiMeshRendererComponent::getID()) {
             component = entity->addComponent<MultiMeshRendererComponent>();
+        } else if (type == TrackHeightfieldComponent::getID()) {
+            component = entity->addComponent<TrackHeightfieldComponent>();
+        } else if (type == CarControllerComponent::getID()) {
+            component = entity->addComponent<CarControllerComponent>();
+        } else if (type == ChaseCameraComponent::getID()) {
+            component = entity->addComponent<ChaseCameraComponent>();
         }
         if(component) component->deserialize(data);
     }
