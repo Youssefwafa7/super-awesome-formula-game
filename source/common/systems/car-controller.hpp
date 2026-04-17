@@ -98,7 +98,9 @@ namespace our {
 
                 // Turning. (Less turning when nearly stopped.)
                 const float speedFactor = std::clamp(std::abs(car->speed) / std::max(1e-3f, car->maxSpeed), 0.0f, 1.0f);
-                transform.rotation.y -= steer * car->turnSpeed * deltaTime * (0.2f + 0.8f * speedFactor);
+                // Swap steering while reversing.
+                const float reversing = (car->speed < -0.1f) ? -1.0f : 1.0f;
+                transform.rotation.y -= (steer * reversing) * car->turnSpeed * deltaTime * (0.2f + 0.8f * speedFactor);
 
                 // Integrate position in XZ.
                 const glm::vec3 forward = getForward(transform.rotation.y);

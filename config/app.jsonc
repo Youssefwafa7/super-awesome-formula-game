@@ -26,7 +26,7 @@
                 }
             },
             "meshes":{
-                "cube": "assets/models/cube.obj"
+                "standard_kart": "assets/models/standard_kart/standard_kart.obj"
             },
             "samplers":{
                 "default":{},
@@ -34,21 +34,7 @@
                     "MAG_FILTER": "GL_NEAREST"
                 }
             },
-            "materials":{
-                "player_cube":{
-                    "type": "tinted",
-                    "shader": "tinted",
-                    "pipelineState": {
-                        "faceCulling":{
-                            "enabled": false
-                        },
-                        "depthTesting":{
-                            "enabled": true
-                        }
-                    },
-                    "tint": [0.9, 0.1, 0.1, 1.0]
-                }
-            }
+            "materials":{}
         },
         "world":[
             {
@@ -61,7 +47,7 @@
                     {
                         "type": "Chase Camera",
                         "target": "player",
-                        "offset": [0.0, 1.6, -3.5],
+                        "offset": [0.0, 3.0, -3.8],
                         "lockRotation": true,
                         "pitch": -0.25,
                         "lookAtOffset": [0.0, 0.7, 0.6]
@@ -72,7 +58,7 @@
                 "name": "player",
                 "position": [0.0, 1.0, 0.0],
                 "rotation": [0, 0, 0],
-                "scale": [0.4, 0.2, 0.8],
+                "scale": [0.1, 0.1, 0.1],
                 "components": [
                     {
                         "type": "Car Controller",
@@ -85,9 +71,19 @@
                         "groundClearance": 0.12
                     },
                     {
-                        "type": "Mesh Renderer",
-                        "mesh": "cube",
-                        "material": "player_cube"
+                        "type": "Multi Mesh Renderer",
+                        "mesh": "standard_kart",
+                        "shader": "textured",
+                        "sampler": "default",
+                        "pipelineState": {
+                            "faceCulling":{
+                                "enabled": false
+                            },
+                            "depthTesting":{
+                                "enabled": true
+                            }
+                        },
+                        "tint": [1, 1, 1, 1]
                     }
                 ]
             },
