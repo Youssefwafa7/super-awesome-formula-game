@@ -29,6 +29,10 @@ namespace our {
         // Local-space position offset from the owning entity origin.
         glm::vec3 positionOffset = glm::vec3(0.0f);
 
+        // By default, light direction follows the owning entity's local forward (-Z).
+        // Set this to true to flip the direction 180 degrees (useful for headlights that point backwards due to model orientation).
+        bool invertDirection = false;
+
         bool castsShadows = false;
 
         static std::string getID() { return "Light"; }

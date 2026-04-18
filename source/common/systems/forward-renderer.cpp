@@ -249,6 +249,7 @@ namespace our {
                     const glm::mat4 localToWorld = entity->getLocalToWorldMatrix();
                     l.position = worldPositionWithOffset(localToWorld, light->positionOffset);
                     l.direction = worldForwardDirection(localToWorld);
+                    if(light->invertDirection) l.direction = -l.direction;
 
                     const float innerRad = glm::radians(light->innerAngle);
                     const float outerRad = glm::radians(light->outerAngle);

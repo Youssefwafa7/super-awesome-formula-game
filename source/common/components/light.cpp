@@ -35,6 +35,8 @@ namespace our {
 
         positionOffset = data.value("positionOffset", positionOffset);
 
+        invertDirection = data.value("invertDirection", invertDirection);
+
         castsShadows = data.value("castsShadows", false);
     }
 
