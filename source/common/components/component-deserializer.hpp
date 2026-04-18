@@ -10,6 +10,7 @@
 #include "free-camera-controller.hpp"
 #include "movement.hpp"
 #include "wheel-spin.hpp"
+#include "light.hpp"
 
 namespace our {
 
@@ -37,6 +38,8 @@ namespace our {
             component = entity->addComponent<ChaseCameraComponent>();
         } else if (type == WheelSpinComponent::getID()) {
             component = entity->addComponent<WheelSpinComponent>();
+        } else if (type == LightComponent::getID()) {
+            component = entity->addComponent<LightComponent>();
         }
         if(component) component->deserialize(data);
     }

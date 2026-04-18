@@ -27,6 +27,9 @@ namespace our {
         const unsigned char white[] = {255, 255, 255, 255};
         glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, 1, 1, 0, GL_RGBA, GL_UNSIGNED_BYTE, white);
 
+        // Ensure the texture is always safe to sample even if the sampler uses mipmapped filtering.
+        glGenerateMipmap(GL_TEXTURE_2D);
+
         return fallbackWhiteTexture;
     }
 
@@ -135,18 +138,37 @@ namespace our {
                 continue;
             }
 
-            auto* mat = new TexturedMaterial();
-            mat->shader = shader;
-            mat->sampler = sampler;
-            mat->pipelineState = pipelineState;
-            mat->transparent = false;
-            mat->alphaThreshold = 0.0f;
+            Material* mat = nullptr;
+            if(shaderName == "lit"){
+                auto* lit = new LitMaterial();
+                lit->shader = shader;
+                lit->sampler = sampler;
+                lit->pipelineState = pipelineState;
+                lit->transparent = false;
 
-            // Diffuse color from MTL * global tint.
-            glm::vec4 diffuseTint(sub.diffuseColor, 1.0f);
-            mat->tint = diffuseTint * globalTint;
+                // Preserve classic OBJ/MTL meaning:
+                // - diffuseColor modulates the diffuse texture
+                // - JSON/global tint acts as an extra multiplier
+                lit->tint = globalTint;
+                lit->albedoColor = sub.diffuseColor;
+                lit->albedoMap = getOrLoadTexture(sub.diffuseTexturePath);
 
-            mat->texture = getOrLoadTexture(sub.diffuseTexturePath);
+                mat = lit;
+            } else {
+                auto* tex = new TexturedMaterial();
+                tex->shader = shader;
+                tex->sampler = sampler;
+                tex->pipelineState = pipelineState;
+                tex->transparent = false;
+                tex->alphaThreshold = 0.0f;
+
+                // Diffuse color from MTL * global tint.
+                glm::vec4 diffuseTint(sub.diffuseColor, 1.0f);
+                tex->tint = diffuseTint * globalTint;
+
+                tex->texture = getOrLoadTexture(sub.diffuseTexturePath);
+                mat = tex;
+            }
 
             ownedMeshes.push_back(sub.mesh);
             ownedMaterials.push_back(mat);
