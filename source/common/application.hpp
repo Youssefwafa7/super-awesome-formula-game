@@ -59,6 +59,10 @@ namespace our {
 
         nlohmann::json app_config;           // A Json file that contains all application configuration
 
+        // Selected presets (configured via menu). Defaults are read from app_config["scene"]["selection"].
+        std::string selectedCarPreset;
+        std::string selectedTrackPreset;
+
         std::unordered_map<std::string, State*> states;   // This will store all the states that the application can run
         State * currentState = nullptr;         // This will store the current scene that is being run
         State * nextState = nullptr;            // If it is requested to go to another scene, this will contain a pointer to that scene
@@ -73,7 +77,17 @@ namespace our {
     public:
 
         // Create an application with following configuration
-        Application(const nlohmann::json& app_config) : app_config(app_config) {}
+        Application(const nlohmann::json& app_config) : app_config(app_config) {
+            try {
+                if(this->app_config.contains("scene") && this->app_config["scene"].contains("selection")){
+                    const auto& sel = this->app_config["scene"]["selection"];
+                    selectedCarPreset = sel.value("car", std::string{});
+                    selectedTrackPreset = sel.value("track", std::string{});
+                }
+            } catch(...) {
+                // Keep defaults empty if config is malformed.
+            }
+        }
         // On destruction, delete all the states
         ~Application(){ for (auto &it : states) delete it.second; }
 
@@ -118,6 +132,12 @@ namespace our {
         [[nodiscard]] const Mouse& getMouse() const { return mouse; }
 
         [[nodiscard]] const nlohmann::json& getConfig() const { return app_config; }
+
+        // Preset selection (menu -> play)
+        void setSelectedCarPreset(std::string id){ selectedCarPreset = std::move(id); }
+        void setSelectedTrackPreset(std::string id){ selectedTrackPreset = std::move(id); }
+        [[nodiscard]] const std::string& getSelectedCarPreset() const { return selectedCarPreset; }
+        [[nodiscard]] const std::string& getSelectedTrackPreset() const { return selectedTrackPreset; }
 
         // Get the size of the frame buffer of the window in pixels.
         glm::ivec2 getFrameBufferSize() {

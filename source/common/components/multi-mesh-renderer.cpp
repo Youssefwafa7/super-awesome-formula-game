@@ -72,6 +72,8 @@ namespace our {
         excludeMaterials.clear();
         debugPrintParts = data.value("debugPrintParts", false);
 
+        const bool recenterToOrigin = data.value("recenterToOrigin", false);
+
         if(data.contains("excludeObjects") && data["excludeObjects"].is_array()){
             excludeObjects = data["excludeObjects"].get<std::vector<std::string>>();
         }
@@ -189,6 +191,29 @@ namespace our {
                           << "\" tex=\"" << sub.diffuseTexturePath << "\""
                           << " pivot=(" << sub.pivot.x << "," << sub.pivot.y << "," << sub.pivot.z << ")"
                           << " size=(" << sub.aabbSize.x << "," << sub.aabbSize.y << "," << sub.aabbSize.z << ")" << std::endl;
+            }
+        }
+
+        // Some OBJs are authored far away from the origin (all coordinates positive, etc.).
+        // Since the chase camera and gameplay systems operate on the entity origin,
+        // optionally re-center the whole multi-mesh around its overall AABB center.
+        if(recenterToOrigin && !parts.empty()){
+            glm::vec3 minP(std::numeric_limits<float>::infinity());
+            glm::vec3 maxP(-std::numeric_limits<float>::infinity());
+
+            for(const auto& part : parts){
+                const glm::vec3 half = 0.5f * glm::abs(part.aabbSize);
+                minP = glm::min(minP, part.localTransform.position - half);
+                maxP = glm::max(maxP, part.localTransform.position + half);
+            }
+
+            const glm::vec3 pivot = 0.5f * (minP + maxP);
+            for(auto& part : parts){
+                part.localTransform.position -= pivot;
+            }
+
+            if(debugPrintParts){
+                std::cerr << "[MultiMeshRendererComponent] Recentering enabled. Overall pivot=(" << pivot.x << "," << pivot.y << "," << pivot.z << ")" << std::endl;
             }
         }
     }
