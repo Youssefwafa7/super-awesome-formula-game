@@ -217,6 +217,7 @@ namespace our {
                 const float dist = glm::length(deltaXZ);
                 if(dist < 1e-6f) continue;
 
+                // Prefer controller's sign when available (stable if we slide sideways).
                 float sign = 1.0f;
                 if(car != nullptr){
                     if(car->speed < -1e-4f) sign = -1.0f;

@@ -190,6 +190,39 @@ class Playstate: public our::State {
             ImGui::Dummy(ImVec2(2.0f * s, 1.4f * s));
         }
         ImGui::End();
+
+        // Bottom-left speedometer HUD.
+        {
+            const ImVec2 display = ImGui::GetIO().DisplaySize;
+
+            ImGui::SetNextWindowPos(ImVec2(10.0f, std::max(10.0f, display.y - 70.0f)), ImGuiCond_Always);
+            ImGui::SetNextWindowBgAlpha(0.35f);
+
+            ImGuiWindowFlags spdFlags = 0;
+            spdFlags |= ImGuiWindowFlags_NoDecoration;
+            spdFlags |= ImGuiWindowFlags_AlwaysAutoResize;
+            spdFlags |= ImGuiWindowFlags_NoSavedSettings;
+            spdFlags |= ImGuiWindowFlags_NoFocusOnAppearing;
+            spdFlags |= ImGuiWindowFlags_NoNav;
+
+            if(ImGui::Begin("Speed", nullptr, spdFlags)){
+                auto* player = findEntityByName(world, "player");
+                if(player){
+                    auto* car = player->getComponent<our::CarControllerComponent>();
+                    if(car){
+                        const float speedMS = std::abs(car->speed);
+                        const float speedKMH = speedMS * 3.6f;
+                        const bool reversing = (car->speed < -0.1f);
+                        ImGui::Text("%s  %.1f km/h", reversing ? "R" : "D", speedKMH);
+                    } else {
+                        ImGui::TextUnformatted("no car controller");
+                    }
+                } else {
+                    ImGui::TextUnformatted("player not found");
+                }
+            }
+            ImGui::End();
+        }
     }
 
     void onDestroy() override {

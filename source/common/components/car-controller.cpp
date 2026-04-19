@@ -11,6 +11,7 @@ namespace our {
         maxReverseSpeed = data.value("maxReverseSpeed", maxReverseSpeed);
         turnSpeed = data.value("turnSpeed", turnSpeed);
         linearDamping = data.value("linearDamping", linearDamping);
+        wheelSteerMaxAngle = data.value("wheelSteerMaxAngle", wheelSteerMaxAngle);
         groundClearance = data.value("groundClearance", groundClearance);
     }
 

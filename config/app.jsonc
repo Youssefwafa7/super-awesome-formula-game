@@ -94,6 +94,7 @@
                                 "maxReverseSpeed": 7.0,
                                 "turnSpeed": 2.2,
                                 "linearDamping": 4.0,
+                                "wheelSteerMaxAngle": 30.0,
                                 "groundClearance": 0.12
                             },
                             {
@@ -150,6 +151,7 @@
                                 "maxReverseSpeed": 7.0,
                                 "turnSpeed": 2.2,
                                 "linearDamping": 4.0,
+                                "wheelSteerMaxAngle": 30.0,
                                 "groundClearance": 0.26
                             },
                             {

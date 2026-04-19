@@ -9,8 +9,6 @@
 #include <algorithm>
 #include <cmath>
 
-#include <glm/gtc/constants.hpp>
-
 namespace our {
 
     class ChaseCameraSystem {
@@ -65,6 +63,7 @@ namespace our {
                 } else {
                     const glm::vec3 lookAtPoint = targetT.position + glm::vec3(yawRot * glm::vec4(chase->lookAtOffset, 0.0f));
                     setLookAt(camT, camT.position, lookAtPoint);
+                    camT.rotation.z = 0.0f;
                 }
             }
         }
