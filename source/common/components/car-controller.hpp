@@ -23,6 +23,20 @@ namespace our {
         float turnSpeed = 1.8f; // radians/sec
         float linearDamping = 4.0f;
 
+        // Surface response tuning
+        float grassSpeedFactor = 0.86f;      // soft max speed factor on grass
+        float grassDamping = 2.0f;           // overspeed bleed rate on grass (1/sec)
+        float grassTurnFactor = 0.84f;       // steering response factor on grass
+        float grassAccelFactor = 0.90f;      // throttle/brake response factor on grass
+
+        // Hard wall-collision tuning
+        float wallBounceDamping = 0.32f;     // speed reduction on wall impact (0..1)
+        float collisionSubstepDistance = 0.12f; // smaller = more stable collision at high speed
+        float collisionRadius = 0.42f;       // XZ collision radius for wall segments
+        float wallPushback = 0.03f;          // extra push away from walls after contact
+        int wallResolveIterations = 4;       // wall depenetration iterations per move
+        float maxClimbHeight = 0.22f;        // max upward height change allowed per sub-step
+
         // Visual-only front wheel steering animation
         float wheelSteerMaxAngle = 30.0f; // degrees
 
