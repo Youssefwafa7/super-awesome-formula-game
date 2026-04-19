@@ -9,6 +9,9 @@
 
 #include <functional>
 #include <array>
+#include <algorithm>
+#include <string>
+#include <vector>
 
 // This struct is used to store the location and size of a button and the code it should execute when clicked
 struct Button {
@@ -47,7 +50,60 @@ class Menustate: public our::State {
     // An array of the button that we can interact with
     std::array<Button, 2> buttons;
 
+    std::vector<std::string> carPresetIds;
+    std::vector<std::string> carPresetLabels;
+    std::vector<std::string> trackPresetIds;
+    std::vector<std::string> trackPresetLabels;
+    int selectedCarIndex = 0;
+    int selectedTrackIndex = 0;
+
+    void loadPresetsFromConfig(){
+        carPresetIds.clear();
+        carPresetLabels.clear();
+        trackPresetIds.clear();
+        trackPresetLabels.clear();
+
+        const auto& cfg = getApp()->getConfig();
+        if(!cfg.contains("scene")) return;
+        const auto& scene = cfg["scene"];
+        if(!scene.contains("presets")) return;
+        const auto& presets = scene["presets"];
+
+        if(presets.contains("cars") && presets["cars"].is_array()){
+            for(const auto& c : presets["cars"]){
+                const std::string id = c.value("id", std::string{});
+                if(id.empty()) continue;
+                carPresetIds.push_back(id);
+                carPresetLabels.push_back(c.value("label", id));
+            }
+        }
+
+        if(presets.contains("tracks") && presets["tracks"].is_array()){
+            for(const auto& t : presets["tracks"]){
+                const std::string id = t.value("id", std::string{});
+                if(id.empty()) continue;
+                trackPresetIds.push_back(id);
+                trackPresetLabels.push_back(t.value("label", id));
+            }
+        }
+
+        const std::string defaultCar = (scene.contains("selection") ? scene["selection"].value("car", std::string{}) : std::string{});
+        const std::string defaultTrack = (scene.contains("selection") ? scene["selection"].value("track", std::string{}) : std::string{});
+
+        auto findIndex = [](const std::vector<std::string>& ids, const std::string& needle){
+            for(int i = 0; i < (int)ids.size(); i++) if(ids[i] == needle) return i;
+            return 0;
+        };
+
+        if(!carPresetIds.empty()) selectedCarIndex = findIndex(carPresetIds, defaultCar);
+        if(!trackPresetIds.empty()) selectedTrackIndex = findIndex(trackPresetIds, defaultTrack);
+
+        if(!carPresetIds.empty()) getApp()->setSelectedCarPreset(carPresetIds[selectedCarIndex]);
+        if(!trackPresetIds.empty()) getApp()->setSelectedTrackPreset(trackPresetIds[selectedTrackIndex]);
+    }
+
     void onInitialize() override {
+        loadPresetsFromConfig();
         // First, we create a material for the menu's background
         menuMaterial = new our::TexturedMaterial();
         // Here, we load the shader that will be used to draw the background
@@ -106,6 +162,43 @@ class Menustate: public our::State {
         buttons[1].position = {830.0f, 644.0f};
         buttons[1].size = {400.0f, 33.0f};
         buttons[1].action = [this](){this->getApp()->close();};
+    }
+
+    void onImmediateGui() override {
+        // Minimal overlay for selecting presets.
+        if(carPresetIds.empty() && trackPresetIds.empty()) return;
+
+        ImGui::SetNextWindowPos(ImVec2(20.0f, 20.0f), ImGuiCond_Always);
+        ImGui::SetNextWindowSize(ImVec2(380.0f, 140.0f), ImGuiCond_Always);
+        if(ImGui::Begin("Game Setup", nullptr, ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoCollapse)){
+
+            if(!carPresetIds.empty()){
+                std::vector<const char*> items;
+                items.reserve(carPresetLabels.size());
+                for(const auto& s : carPresetLabels) items.push_back(s.c_str());
+                if(ImGui::Combo("Car", &selectedCarIndex, items.data(), (int)items.size())){
+                    selectedCarIndex = std::clamp(selectedCarIndex, 0, (int)carPresetIds.size() - 1);
+                    getApp()->setSelectedCarPreset(carPresetIds[selectedCarIndex]);
+                }
+            } else {
+                ImGui::TextUnformatted("No car presets configured.");
+            }
+
+            if(!trackPresetIds.empty()){
+                std::vector<const char*> items;
+                items.reserve(trackPresetLabels.size());
+                for(const auto& s : trackPresetLabels) items.push_back(s.c_str());
+                if(ImGui::Combo("Track", &selectedTrackIndex, items.data(), (int)items.size())){
+                    selectedTrackIndex = std::clamp(selectedTrackIndex, 0, (int)trackPresetIds.size() - 1);
+                    getApp()->setSelectedTrackPreset(trackPresetIds[selectedTrackIndex]);
+                }
+            } else {
+                ImGui::TextUnformatted("No track presets configured.");
+            }
+
+            ImGui::TextUnformatted("Press SPACE or click Play.");
+        }
+        ImGui::End();
     }
 
     void onDraw(double deltaTime) override {
