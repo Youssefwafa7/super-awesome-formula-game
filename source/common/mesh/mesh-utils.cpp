@@ -9,12 +9,19 @@
 #include <unordered_map>
 #include <filesystem>
 #include <algorithm>
+#include <limits>
 
 namespace {
     struct SubMeshBuild {
         std::vector<our::Vertex> vertices;
         std::vector<GLuint> elements;
         std::unordered_map<our::Vertex, GLuint> vertex_map;
+    };
+
+    struct SubMeshEntry {
+        SubMeshBuild build;
+        std::string objectName;
+        int materialId = -1;
     };
 }
 
@@ -138,9 +145,10 @@ std::vector<our::mesh_utils::OBJSubMesh> our::mesh_utils::loadOBJWithMaterials(c
         std::cout << "WARN while loading obj file \"" << filename << "\": " << warn << std::endl;
     }
 
-    // Group geometry by material id. tinyobj uses -1 when no material is assigned.
-    // We map material_id -> build buffers.
-    std::unordered_map<int, SubMeshBuild> builds;
+    // Group geometry by (object/group name, material id).
+    // tinyobj uses -1 when no material is assigned.
+    // We map "<objectName>#<materialId>" -> build buffers.
+    std::unordered_map<std::string, SubMeshEntry> builds;
 
     for(const auto& shape : shapes){
         size_t index_offset = 0;
@@ -150,7 +158,12 @@ std::vector<our::mesh_utils::OBJSubMesh> our::mesh_utils::loadOBJWithMaterials(c
             int mat_id = -1;
             if(f < shape.mesh.material_ids.size()) mat_id = shape.mesh.material_ids[f];
 
-            auto& build = builds[mat_id];
+            const std::string objectName = shape.name.empty() ? std::string("__unnamed") : shape.name;
+            const std::string key = objectName + std::string("#") + std::to_string(mat_id);
+            auto& entry = builds[key];
+            if(entry.objectName.empty()) entry.objectName = objectName;
+            entry.materialId = mat_id;
+            auto& build = entry.build;
 
             for(int v = 0; v < fv; v++){
                 const tinyobj::index_t idx = shape.mesh.indices[index_offset + v];
@@ -222,9 +235,29 @@ std::vector<our::mesh_utils::OBJSubMesh> our::mesh_utils::loadOBJWithMaterials(c
     std::vector<OBJSubMesh> result;
     result.reserve(builds.size());
 
-    for(auto& [mat_id, build] : builds){
+    for(auto& kv : builds){
+        auto& entry = kv.second;
+        auto& build = entry.build;
+        const int mat_id = entry.materialId;
         if(build.elements.empty() || build.vertices.empty()) continue;
+
+        // Compute AABB & pivot, then re-center vertex positions around pivot.
+        glm::vec3 minP(std::numeric_limits<float>::infinity());
+        glm::vec3 maxP(-std::numeric_limits<float>::infinity());
+        for(const auto& v : build.vertices){
+            minP = glm::min(minP, v.position);
+            maxP = glm::max(maxP, v.position);
+        }
+        const glm::vec3 pivot = 0.5f * (minP + maxP);
+        const glm::vec3 aabbSize = (maxP - minP);
+        for(auto& v : build.vertices){
+            v.position -= pivot;
+        }
+
         OBJSubMesh sub;
+        sub.objectName = entry.objectName;
+        sub.pivot = pivot;
+        sub.aabbSize = aabbSize;
         sub.mesh = new our::Mesh(build.vertices, build.elements);
 
         if(mat_id >= 0 && mat_id < (int)materials.size()){
@@ -234,6 +267,11 @@ std::vector<our::mesh_utils::OBJSubMesh> our::mesh_utils::loadOBJWithMaterials(c
             if(!mat.diffuse_texname.empty()){
                 // Resolve relative to base_dir.
                 sub.diffuseTexturePath = base_dir + mat.diffuse_texname;
+
+                // Some exporters omit Kd when a texture is present, leaving tinyobj's diffuse color at (0,0,0).
+                // Our "textured" shader multiplies by tint, so a black Kd would black-out the texture.
+                // Default to white tint when a diffuse texture exists and Kd appears unset.
+                if(sub.diffuseColor == glm::vec3(0.0f)) sub.diffuseColor = glm::vec3(1.0f);
             }
         } else {
             sub.materialName = "__default";

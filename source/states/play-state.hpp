@@ -8,6 +8,7 @@
 #include <systems/movement.hpp>
 #include <systems/car-controller.hpp>
 #include <systems/chase-camera.hpp>
+#include <systems/wheel-spin.hpp>
 #include <asset-loader.hpp>
 
 // This state shows how to use the ECS framework and deserialization.
@@ -19,6 +20,7 @@ class Playstate: public our::State {
     our::MovementSystem movementSystem;
     our::CarControllerSystem carControllerSystem;
     our::ChaseCameraSystem chaseCameraSystem;
+    our::WheelSpinSystem wheelSpinSystem;
 
     void onInitialize() override {
         // First of all, we get the scene configuration from the app config
@@ -43,6 +45,7 @@ class Playstate: public our::State {
         // Here, we just run a bunch of systems to control the world logic
         movementSystem.update(&world, (float)deltaTime);
         carControllerSystem.update(&world, (float)deltaTime);
+        wheelSpinSystem.update(&world, (float)deltaTime);
         cameraController.update(&world, (float)deltaTime);
         chaseCameraSystem.update(&world, (float)deltaTime);
         // And finally we use the renderer system to draw the scene

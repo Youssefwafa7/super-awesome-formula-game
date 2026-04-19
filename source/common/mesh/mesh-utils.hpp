@@ -17,6 +17,16 @@ namespace our::mesh_utils {
         std::string diffuseTexturePath;
         glm::vec3 diffuseColor = glm::vec3(1.0f);
         std::string materialName;
+
+        // The OBJ 'o'/'g' name that this submesh came from (tinyobj::shape_t::name).
+        std::string objectName;
+
+        // Pivot in the original OBJ local space. The mesh vertices are shifted so that
+        // their positions are relative to this pivot (i.e., mesh is centered at origin).
+        glm::vec3 pivot = glm::vec3(0.0f);
+
+        // AABB size in the original OBJ local space (before centering).
+        glm::vec3 aabbSize = glm::vec3(0.0f);
     };
 
     // Load an ".obj" file and split it into multiple meshes, one per material.

@@ -70,4 +70,72 @@ namespace our {
         sampler = AssetLoader<Sampler>::get(data.value("sampler", ""));
     }
 
+    static void bindTextureUnit(GLuint unit, Texture2D* texture, Sampler* sampler){
+        glActiveTexture(GL_TEXTURE0 + unit);
+        if(texture) texture->bind();
+        else glBindTexture(GL_TEXTURE_2D, 0);
+
+        if(sampler) sampler->bind(unit);
+        else glBindSampler(unit, 0);
+    }
+
+    void LitMaterial::setup() const {
+        // Note: We keep the same base behavior as TintedMaterial (pipeline + shader + tint).
+        TintedMaterial::setup();
+
+        if(shader == nullptr) return;
+
+        shader->set("hasAlbedoMap", (GLint)(albedoMap != nullptr));
+        shader->set("hasSpecularMap", (GLint)(specularMap != nullptr));
+        shader->set("hasRoughnessMap", (GLint)(roughnessMap != nullptr));
+        shader->set("hasAoMap", (GLint)(aoMap != nullptr));
+        shader->set("hasEmissionMap", (GLint)(emissionMap != nullptr));
+
+        shader->set("albedoColor", albedoColor);
+        shader->set("specularColor", specularColor);
+        shader->set("roughnessValue", roughnessValue);
+        shader->set("metallicValue", metallicValue);
+        shader->set("aoValue", aoValue);
+        shader->set("emissionColor", emissionColor);
+        shader->set("emissionIntensity", emissionIntensity);
+        shader->set("useBlinnPhong", (GLint)useBlinnPhong);
+
+        // Bind maps to fixed texture units.
+        // 0: albedo, 1: specular, 2: roughness, 3: AO, 4: emission
+        bindTextureUnit(0, albedoMap, sampler);
+        bindTextureUnit(1, specularMap, sampler);
+        bindTextureUnit(2, roughnessMap, sampler);
+        bindTextureUnit(3, aoMap, sampler);
+        bindTextureUnit(4, emissionMap, sampler);
+
+        shader->set("albedoMap", 0);
+        shader->set("specularMap", 1);
+        shader->set("roughnessMap", 2);
+        shader->set("aoMap", 3);
+        shader->set("emissionMap", 4);
+    }
+
+    void LitMaterial::deserialize(const nlohmann::json& data){
+        TintedMaterial::deserialize(data);
+        if(!data.is_object()) return;
+
+        albedoMap = AssetLoader<Texture2D>::get(data.value("albedoMap", ""));
+        specularMap = AssetLoader<Texture2D>::get(data.value("specularMap", ""));
+        roughnessMap = AssetLoader<Texture2D>::get(data.value("roughnessMap", ""));
+        aoMap = AssetLoader<Texture2D>::get(data.value("aoMap", ""));
+        emissionMap = AssetLoader<Texture2D>::get(data.value("emissionMap", ""));
+
+        sampler = AssetLoader<Sampler>::get(data.value("sampler", ""));
+
+        albedoColor = data.value("albedoColor", albedoColor);
+        specularColor = data.value("specularColor", specularColor);
+        roughnessValue = data.value("roughnessValue", roughnessValue);
+        metallicValue = data.value("metallicValue", metallicValue);
+        aoValue = data.value("aoValue", aoValue);
+        emissionColor = data.value("emissionColor", emissionColor);
+        emissionIntensity = data.value("emissionIntensity", emissionIntensity);
+
+        useBlinnPhong = data.value("useBlinnPhong", useBlinnPhong);
+    }
+
 }

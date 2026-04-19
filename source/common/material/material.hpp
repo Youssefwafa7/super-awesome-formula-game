@@ -53,12 +53,42 @@ namespace our {
         void deserialize(const nlohmann::json& data) override;
     };
 
+    // A forward-lit material with optional texture maps.
+    // The shader is expected to sample the maps named:
+    //   albedoMap, specularMap, roughnessMap, aoMap, emissionMap
+    // and use uniforms for scalar fallbacks when maps are missing.
+    class LitMaterial : public TintedMaterial {
+    public:
+        Texture2D* albedoMap = nullptr;
+        Texture2D* specularMap = nullptr;
+        Texture2D* roughnessMap = nullptr;
+        Texture2D* aoMap = nullptr;
+        Texture2D* emissionMap = nullptr;
+
+        Sampler* sampler = nullptr;
+
+        glm::vec3 albedoColor = glm::vec3(1.0f);
+        glm::vec3 specularColor = glm::vec3(0.04f);
+        float roughnessValue = 0.7f;
+        float metallicValue = 0.0f;
+        float aoValue = 1.0f;
+        glm::vec3 emissionColor = glm::vec3(1.0f);
+        float emissionIntensity = 0.0f;
+
+        bool useBlinnPhong = true;
+
+        void setup() const override;
+        void deserialize(const nlohmann::json& data) override;
+    };
+
     // This function returns a new material instance based on the given type
     inline Material* createMaterialFromType(const std::string& type){
         if(type == "tinted"){
             return new TintedMaterial();
         } else if(type == "textured"){
             return new TexturedMaterial();
+        } else if(type == "lit"){
+            return new LitMaterial();
         } else {
             return new Material();
         }

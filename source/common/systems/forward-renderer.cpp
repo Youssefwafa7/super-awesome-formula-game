@@ -2,12 +2,47 @@
 #include "../mesh/mesh-utils.hpp"
 #include "../texture/texture-utils.hpp"
 #include "../components/multi-mesh-renderer.hpp"
+#include "../deserialize-utils.hpp"
+
+#include <glm/gtc/matrix_transform.hpp>
 
 namespace our {
+
+    struct UploadedLight {
+        int type = 1; // 0=Directional, 1=Point, 2=Spot
+        glm::vec3 color = glm::vec3(1.0f);
+        float intensity = 1.0f;
+        glm::vec3 position = glm::vec3(0.0f);
+        glm::vec3 direction = glm::vec3(0.0f, 0.0f, -1.0f);
+        glm::vec3 attenuation = glm::vec3(1.0f, 0.0f, 0.0f);
+        glm::vec2 coneCos = glm::vec2(0.0f); // (innerCos, outerCos)
+        int castsShadows = 0;
+    };
+
+    static glm::vec3 worldPositionWithOffset(const glm::mat4& localToWorld, const glm::vec3& localOffset){
+        return glm::vec3(localToWorld * glm::vec4(localOffset, 1.0f));
+    }
+
+    static glm::vec3 worldForwardDirection(const glm::mat4& localToWorld){
+        glm::vec3 dir = glm::vec3(localToWorld * glm::vec4(0, 0, -1, 0));
+        float len = glm::length(dir);
+        if(len <= 0.00001f) return glm::vec3(0, 0, -1);
+        return dir / len;
+    }
 
     void ForwardRenderer::initialize(glm::ivec2 windowSize, const nlohmann::json& config){
         // First, we store the window size for later use
         this->windowSize = windowSize;
+
+        sunSphere = nullptr;
+        sunMaterial = nullptr;
+
+        // Optional ambient settings used by lit shaders
+        if(config.contains("ambient") && config["ambient"].is_object()){
+            const auto& a = config["ambient"];
+            ambientColor = a.value("color", ambientColor);
+            ambientIntensity = a.value("intensity", ambientIntensity);
+        }
 
         // Then we check if there is a sky texture in the configuration
         if(config.contains("sky")){
@@ -50,6 +85,68 @@ namespace our {
             this->skyMaterial->tint = glm::vec4(1.0f, 1.0f, 1.0f, 1.0f);
             this->skyMaterial->alphaThreshold = 1.0f;
             this->skyMaterial->transparent = false;
+        }
+
+        // Optional sun sphere (drawn behind all geometry but in front of the sky)
+        if(config.contains("sun")){
+            std::string sunTextureFile = config.value<std::string>("sun", "");
+            if(!sunTextureFile.empty()){
+                if(config.contains("sunDirection")){
+                    // Ray direction (from sun -> scene)
+                    glm::vec3 dir = config.value("sunDirection", sunDirectionWorld);
+                    float len = glm::length(dir);
+                    if(len > 0.0001f) sunDirectionWorld = dir / len;
+                } else if(config.contains("sunWorldPosition")){
+                    // Backward-compat: if a world position is provided, treat it as "direction to sun".
+                    // Convert to ray direction by flipping the sign.
+                    glm::vec3 toSun = config.value("sunWorldPosition", glm::vec3(0.0f, 1.0f, 0.0f));
+                    float len = glm::length(toSun);
+                    if(len > 0.0001f) sunDirectionWorld = (-toSun) / len;
+                }
+                sunDistance = config.value("sunDistance", sunDistance);
+                sunScale = config.value("sunScale", sunScale);
+
+                enableSunLight = config.value("sunLightEnabled", true);
+                sunLightColor = config.value("sunLightColor", sunLightColor);
+                sunLightIntensity = config.value("sunLightIntensity", sunLightIntensity);
+
+                sunSphere = mesh_utils::sphere(glm::ivec2(32, 32));
+
+                ShaderProgram* sunShader = new ShaderProgram();
+                sunShader->attach("assets/shaders/textured.vert", GL_VERTEX_SHADER);
+                sunShader->attach("assets/shaders/textured.frag", GL_FRAGMENT_SHADER);
+                sunShader->link();
+
+                PipelineState sunPipelineState{};
+                sunPipelineState.depthTesting.enabled = true;
+                sunPipelineState.depthTesting.function = GL_LEQUAL;
+                sunPipelineState.depthMask = false;
+                sunPipelineState.blending.enabled = true;
+                sunPipelineState.blending.equation = GL_FUNC_ADD;
+                sunPipelineState.blending.sourceFactor = GL_SRC_ALPHA;
+                sunPipelineState.blending.destinationFactor = GL_ONE_MINUS_SRC_ALPHA;
+                sunPipelineState.faceCulling.enabled = true;
+                sunPipelineState.faceCulling.culledFace = GL_BACK;
+                sunPipelineState.faceCulling.frontFace = GL_CCW;
+
+                Texture2D* sunTexture = texture_utils::loadImage(sunTextureFile, true);
+
+                Sampler* sunSampler = new Sampler();
+                sunSampler->set(GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
+                sunSampler->set(GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+                sunSampler->set(GL_TEXTURE_WRAP_S, GL_REPEAT);
+                sunSampler->set(GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+
+                sunMaterial = new TexturedMaterial();
+                sunMaterial->shader = sunShader;
+                sunMaterial->texture = sunTexture;
+                sunMaterial->sampler = sunSampler;
+                sunMaterial->pipelineState = sunPipelineState;
+                const float sunTint = config.value("sunTint", 2.5f);
+                sunMaterial->tint = glm::vec4(sunTint, sunTint, sunTint, 1.0f);
+                sunMaterial->alphaThreshold = 1.0f;
+                sunMaterial->transparent = false;
+            }
         }
 
         // Then we check if there is a postprocessing shader in the configuration
@@ -105,6 +202,15 @@ namespace our {
             delete skyMaterial->sampler;
             delete skyMaterial;
         }
+
+        // Delete all objects related to the sun
+        if(sunMaterial){
+            delete sunSphere;
+            delete sunMaterial->shader;
+            delete sunMaterial->texture;
+            delete sunMaterial->sampler;
+            delete sunMaterial;
+        }
         // Delete all objects related to post processing
         if(postprocessMaterial){
             glDeleteFramebuffers(1, &postprocessFrameBuffer);
@@ -122,16 +228,43 @@ namespace our {
         CameraComponent* camera = nullptr;
         opaqueCommands.clear();
         transparentCommands.clear();
+
+        // Collect lights for the current frame
+        std::vector<UploadedLight> lights;
+        lights.reserve(MAX_LIGHTS);
+
         for(auto entity : world->getEntities()){
             // If we hadn't found a camera yet, we look for a camera in this entity
             if(!camera) camera = entity->getComponent<CameraComponent>();
+
+            if(auto light = entity->getComponent<LightComponent>(); light){
+                if((int)lights.size() < MAX_LIGHTS){
+                    UploadedLight l;
+                    l.type = (int)light->lightType;
+                    l.color = light->color;
+                    l.intensity = light->intensity;
+                    l.attenuation = light->attenuation;
+                    l.castsShadows = light->castsShadows ? 1 : 0;
+
+                    const glm::mat4 localToWorld = entity->getLocalToWorldMatrix();
+                    l.position = worldPositionWithOffset(localToWorld, light->positionOffset);
+                    l.direction = worldForwardDirection(localToWorld);
+                    if(light->invertDirection) l.direction = -l.direction;
+
+                    const float innerRad = glm::radians(light->innerAngle);
+                    const float outerRad = glm::radians(light->outerAngle);
+                    l.coneCos = glm::vec2(std::cos(innerRad), std::cos(outerRad));
+
+                    lights.push_back(l);
+                }
+            }
 
             // If this entity has a multi-mesh renderer component
             if(auto multi = entity->getComponent<MultiMeshRendererComponent>(); multi){
                 for(const auto& part : multi->parts){
                     if(part.mesh == nullptr || part.material == nullptr) continue;
                     RenderCommand command;
-                    command.localToWorld = multi->getOwner()->getLocalToWorldMatrix();
+                    command.localToWorld = multi->getOwner()->getLocalToWorldMatrix() * part.localTransform.toMat4();
                     command.center = glm::vec3(command.localToWorld * glm::vec4(0, 0, 0, 1));
                     command.mesh = part.mesh;
                     command.material = part.material;
@@ -162,6 +295,17 @@ namespace our {
                     opaqueCommands.push_back(command);
                 }
             }
+        }
+
+        // Optional sun light from renderer config (keeps lighting aligned with the sun sprite)
+        if(enableSunLight && sunMaterial && (int)lights.size() < MAX_LIGHTS){
+            UploadedLight sun;
+            sun.type = 0; // directional
+            sun.color = sunLightColor;
+            sun.intensity = sunLightIntensity;
+            // lightDirection is the rays direction (from light to scene)
+            sun.direction = sunDirectionWorld;
+            lights.push_back(sun);
         }
 
         // If there is no camera, we return (we cannot render without a camera)
@@ -210,6 +354,24 @@ namespace our {
             glm::mat4 transform = VP * command.localToWorld;
             command.material->setup();
             command.material->shader->set("transform", transform);
+            command.material->shader->set("model", command.localToWorld);
+            command.material->shader->set("cameraPosition", eye);
+            command.material->shader->set("ambientColor", ambientColor);
+            command.material->shader->set("ambientIntensity", ambientIntensity);
+
+            command.material->shader->set("lightCount", (GLint)lights.size());
+            for(size_t i = 0; i < lights.size(); i++){
+                const auto& l = lights[i];
+                const std::string idx = std::to_string(i);
+                command.material->shader->set("lightType[" + idx + "]", (GLint)l.type);
+                command.material->shader->set("lightColor[" + idx + "]", l.color);
+                command.material->shader->set("lightIntensity[" + idx + "]", l.intensity);
+                command.material->shader->set("lightPosition[" + idx + "]", l.position);
+                command.material->shader->set("lightDirection[" + idx + "]", l.direction);
+                command.material->shader->set("lightAttenuation[" + idx + "]", l.attenuation);
+                command.material->shader->set("lightConeCos[" + idx + "]", l.coneCos);
+                command.material->shader->set("lightCastsShadows[" + idx + "]", (GLint)l.castsShadows);
+            }
             command.mesh->draw();
         }
         // If there is a sky material, draw the sky
@@ -235,12 +397,49 @@ namespace our {
             //TODO: (Req 10) draw the sky sphere
             skySphere->draw();
         }
+
+        // If there is a sun material, draw the sun sphere in front of the sky but behind all geometry
+        if(this->sunMaterial){
+            sunMaterial->setup();
+
+            // Directional sun: fixed world ray direction. Visual sun is opposite the ray direction.
+            glm::vec3 sunCenter = eye + (-sunDirectionWorld) * sunDistance;
+            glm::mat4 sunModelMatrix = glm::translate(glm::mat4(1.0f), sunCenter) * glm::scale(glm::mat4(1.0f), glm::vec3(sunScale));
+
+            glm::mat4 alwaysBehindTransform = glm::mat4(
+                1.0f, 0.0f, 0.0f, 0.0f,
+                0.0f, 1.0f, 0.0f, 0.0f,
+                0.0f, 0.0f, 0.0f, 0.0f,
+                0.0f, 0.0f, 1.0f, 1.0f
+            );
+
+            sunMaterial->shader->set("transform", alwaysBehindTransform * camera->getProjectionMatrix(windowSize) * camera->getViewMatrix() * sunModelMatrix);
+            sunSphere->draw();
+        }
         //TODO: (Req 9) Draw all the transparent commands
         // Don't forget to set the "transform" uniform to be equal the model-view-projection matrix for each render command
         for(auto& command : transparentCommands){
             glm::mat4 transform = VP * command.localToWorld;
             command.material->setup();
             command.material->shader->set("transform", transform);
+            command.material->shader->set("model", command.localToWorld);
+            command.material->shader->set("cameraPosition", eye);
+            command.material->shader->set("ambientColor", ambientColor);
+            command.material->shader->set("ambientIntensity", ambientIntensity);
+
+            command.material->shader->set("lightCount", (GLint)lights.size());
+            for(size_t i = 0; i < lights.size(); i++){
+                const auto& l = lights[i];
+                const std::string idx = std::to_string(i);
+                command.material->shader->set("lightType[" + idx + "]", (GLint)l.type);
+                command.material->shader->set("lightColor[" + idx + "]", l.color);
+                command.material->shader->set("lightIntensity[" + idx + "]", l.intensity);
+                command.material->shader->set("lightPosition[" + idx + "]", l.position);
+                command.material->shader->set("lightDirection[" + idx + "]", l.direction);
+                command.material->shader->set("lightAttenuation[" + idx + "]", l.attenuation);
+                command.material->shader->set("lightConeCos[" + idx + "]", l.coneCos);
+                command.material->shader->set("lightCastsShadows[" + idx + "]", (GLint)l.castsShadows);
+            }
             command.mesh->draw();
         }
 
