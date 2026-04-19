@@ -86,6 +86,8 @@ set(COMMON_SOURCES
         source/common/components/track-heightfield.cpp
         source/common/components/car-controller.hpp
         source/common/components/car-controller.cpp
+        source/common/components/ai-car.hpp
+        source/common/components/ai-car.cpp
         source/common/components/free-camera-controller.hpp
         source/common/components/free-camera-controller.cpp
         source/common/components/movement.hpp

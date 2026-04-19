@@ -12,10 +12,15 @@
 #include <systems/wheel-spin.hpp>
 #include <asset-loader.hpp>
 
+#include <cmath>
+#include <filesystem>
+#include <fstream>
+#include <iomanip>
 #include <string>
 
 // This state shows how to use the ECS framework and deserialization.
-class Playstate: public our::State {
+class Playstate : public our::State
+{
 
     our::World world;
     our::ForwardRenderer renderer;
@@ -25,95 +30,235 @@ class Playstate: public our::State {
     our::ChaseCameraSystem chaseCameraSystem;
     our::WheelSpinSystem wheelSpinSystem;
 
-    static our::Entity* findEntityByName(our::World& world, const std::string& name){
-        for(auto* e : world.getEntities()){
-            if(e && e->name == name) return e;
+    std::ofstream pathLog;
+    bool pathLogEnabled = true;
+    double pathLogTime = 0.0;
+    double pathLogPeriod = 0.08;
+    bool hasLastLoggedPos = false;
+    glm::vec3 lastLoggedPos = glm::vec3(0.0f);
+    int pathLogSamples = 0;
+    int debugAICount = 0;
+    double elapsedPlayTime = 0.0;
+
+    static int countAICars(our::World &world)
+    {
+        int count = 0;
+        for (auto *e : world.getEntities())
+        {
+            if (e && e->getComponent<our::AICarComponent>() != nullptr)
+                count++;
+        }
+        return count;
+    }
+
+    static our::Entity *findEntityByName(our::World &world, const std::string &name)
+    {
+        for (auto *e : world.getEntities())
+        {
+            if (e && e->name == name)
+                return e;
         }
         return nullptr;
     }
 
-    static const nlohmann::json* findPresetById(const nlohmann::json& arr, const std::string& id){
-        if(!arr.is_array() || id.empty()) return nullptr;
-        for(const auto& item : arr){
-            if(item.is_object() && item.value("id", std::string{}) == id) return &item;
+    static const nlohmann::json *findPresetById(const nlohmann::json &arr, const std::string &id)
+    {
+        if (!arr.is_array() || id.empty())
+            return nullptr;
+        for (const auto &item : arr)
+        {
+            if (item.is_object() && item.value("id", std::string{}) == id)
+                return &item;
         }
         return nullptr;
     }
 
-    static const nlohmann::json* firstPreset(const nlohmann::json& arr){
-        if(!arr.is_array() || arr.empty()) return nullptr;
-        if(arr[0].is_object()) return &arr[0];
+    static const nlohmann::json *firstPreset(const nlohmann::json &arr)
+    {
+        if (!arr.is_array() || arr.empty())
+            return nullptr;
+        if (arr[0].is_object())
+            return &arr[0];
         return nullptr;
     }
 
-    static nlohmann::json buildWorldWithPresets(const nlohmann::json& sceneConfig, const std::string& carId, const std::string& trackId){
+    static nlohmann::json buildWorldWithPresets(const nlohmann::json &sceneConfig, const std::string &carId, const std::string &trackId)
+    {
         nlohmann::json out = nlohmann::json::array();
 
         // Start from the configured world but remove any hardcoded player/track to avoid duplicates.
-        if(sceneConfig.contains("world") && sceneConfig["world"].is_array()){
-            for(const auto& e : sceneConfig["world"]){
-                if(!e.is_object()) continue;
+        if (sceneConfig.contains("world") && sceneConfig["world"].is_array())
+        {
+            for (const auto &e : sceneConfig["world"])
+            {
+                if (!e.is_object())
+                    continue;
                 const std::string name = e.value("name", std::string{});
-                if(name == "player" || name == "track") continue;
+                if (name == "player" || name == "track")
+                    continue;
                 out.push_back(e);
             }
         }
 
-        if(!sceneConfig.contains("presets")) return out;
-        const auto& presets = sceneConfig["presets"];
-        const auto& cars = presets.contains("cars") ? presets["cars"] : nlohmann::json::array();
-        const auto& tracks = presets.contains("tracks") ? presets["tracks"] : nlohmann::json::array();
+        if (!sceneConfig.contains("presets"))
+            return out;
+        const auto &presets = sceneConfig["presets"];
+        const auto &cars = presets.contains("cars") ? presets["cars"] : nlohmann::json::array();
+        const auto &tracks = presets.contains("tracks") ? presets["tracks"] : nlohmann::json::array();
 
-        const nlohmann::json* carPreset = findPresetById(cars, carId);
-        if(carPreset == nullptr) carPreset = firstPreset(cars);
-        const nlohmann::json* trackPreset = findPresetById(tracks, trackId);
-        if(trackPreset == nullptr) trackPreset = firstPreset(tracks);
+        const nlohmann::json *carPreset = findPresetById(cars, carId);
+        if (carPreset == nullptr)
+            carPreset = firstPreset(cars);
+        const nlohmann::json *trackPreset = findPresetById(tracks, trackId);
+        if (trackPreset == nullptr)
+            trackPreset = firstPreset(tracks);
 
-        if(trackPreset != nullptr){
-            if(trackPreset->contains("entities") && (*trackPreset)["entities"].is_array()){
-                for(const auto& ent : (*trackPreset)["entities"]){
-                    if(ent.is_object()) out.push_back(ent);
+        if (trackPreset != nullptr)
+        {
+            if (trackPreset->contains("entities") && (*trackPreset)["entities"].is_array())
+            {
+                for (const auto &ent : (*trackPreset)["entities"])
+                {
+                    if (ent.is_object())
+                        out.push_back(ent);
                 }
-            } else if(trackPreset->contains("entity") && (*trackPreset)["entity"].is_object()){
+            }
+            else if (trackPreset->contains("entity") && (*trackPreset)["entity"].is_object())
+            {
                 out.push_back((*trackPreset)["entity"]);
             }
         }
 
-        if(carPreset != nullptr && carPreset->contains("entity") && (*carPreset)["entity"].is_object()){
+        if (carPreset != nullptr && carPreset->contains("entity") && (*carPreset)["entity"].is_object())
+        {
             nlohmann::json player = (*carPreset)["entity"];
 
             // Override spawn from track preset if provided.
-            if(trackPreset != nullptr && trackPreset->contains("spawn") && (*trackPreset)["spawn"].is_object()){
-                const auto& spawn = (*trackPreset)["spawn"];
-                if(spawn.contains("position")) player["position"] = spawn["position"];
-                if(spawn.contains("rotation")) player["rotation"] = spawn["rotation"];
+            if (trackPreset != nullptr && trackPreset->contains("spawn") && (*trackPreset)["spawn"].is_object())
+            {
+                const auto &spawn = (*trackPreset)["spawn"];
+                if (spawn.contains("position"))
+                    player["position"] = spawn["position"];
+                if (spawn.contains("rotation"))
+                    player["rotation"] = spawn["rotation"];
             }
 
-            out.push_back(std::move(player));
+            out.push_back(player);
+
+            // Spawn three AI cars based on the selected car preset.
+            nlohmann::json aiBase = (*carPreset)["entity"];
+
+            if (aiBase.contains("components") && aiBase["components"].is_array())
+            {
+                nlohmann::json filtered = nlohmann::json::array();
+                for (const auto &c : aiBase["components"])
+                {
+                    if (!c.is_object())
+                        continue;
+                    const std::string type = c.value("type", std::string{});
+                    if (type == "Light")
+                        continue;
+                    filtered.push_back(c);
+                }
+                aiBase["components"] = std::move(filtered);
+            }
+
+            glm::vec3 spawnPos(0.0f);
+            if (player.contains("position") && player["position"].is_array() && player["position"].size() >= 3)
+            {
+                spawnPos.x = player["position"][0].get<float>();
+                spawnPos.y = player["position"][1].get<float>();
+                spawnPos.z = player["position"][2].get<float>();
+            }
+
+            float yawDeg = 0.0f;
+            if (player.contains("rotation") && player["rotation"].is_array() && player["rotation"].size() >= 2)
+            {
+                yawDeg = player["rotation"][1].get<float>();
+            }
+
+            const float yaw = glm::radians(yawDeg);
+            const glm::vec3 forward(std::sin(yaw), 0.0f, std::cos(yaw));
+            const glm::vec3 right(forward.z, 0.0f, -forward.x);
+
+            const glm::vec2 gridOffsets[3] = {
+                glm::vec2(-1.6f, -0.8f), // left, slightly behind player
+                glm::vec2(1.6f, -0.8f),  // right, slightly behind player
+                glm::vec2(0.0f, -2.6f)   // center, second row
+            };
+
+            for (int i = 0; i < 3; i++)
+            {
+                nlohmann::json ai = aiBase;
+                ai["name"] = std::string("ai_car_") + std::to_string(i + 1);
+
+                const glm::vec2 go = gridOffsets[i];
+                const glm::vec3 aiPos = spawnPos + right * go.x + forward * go.y;
+                ai["position"] = nlohmann::json::array({aiPos.x, aiPos.y, aiPos.z});
+                ai["rotation"] = nlohmann::json::array({0.0f, yawDeg, 0.0f});
+
+                if (!ai.contains("components") || !ai["components"].is_array())
+                    ai["components"] = nlohmann::json::array();
+                ai["components"].push_back({{"type", "AI Car"},
+                                            {"desiredSpeed", 20.2f + 1.2f * (float)i},
+                                            {"waypointReachDistance", 1.5f},
+                                            {"lookAheadPoints", 4 + (i % 2)},
+                                            {"steerResponsiveness", 1.45f + 0.10f * (float)i},
+                                            {"laneOffset", 0.0f}});
+
+                out.push_back(std::move(ai));
+            }
         }
 
         return out;
     }
 
-    void onInitialize() override {
+    void onInitialize() override
+    {
         // First of all, we get the scene configuration from the app config
-        auto& config = getApp()->getConfig()["scene"];
+        auto &config = getApp()->getConfig()["scene"];
         // If we have assets in the scene config, we deserialize them
-        if(config.contains("assets")){
+        if (config.contains("assets"))
+        {
             our::deserializeAllAssets(config["assets"]);
         }
         // Build the world using the selected presets (if configured).
         const std::string carId = !getApp()->getSelectedCarPreset().empty() ? getApp()->getSelectedCarPreset()
-            : (config.contains("selection") ? config["selection"].value("car", std::string{}) : std::string{});
+                                                                            : (config.contains("selection") ? config["selection"].value("car", std::string{}) : std::string{});
         const std::string trackId = !getApp()->getSelectedTrackPreset().empty() ? getApp()->getSelectedTrackPreset()
-            : (config.contains("selection") ? config["selection"].value("track", std::string{}) : std::string{});
+                                                                                : (config.contains("selection") ? config["selection"].value("track", std::string{}) : std::string{});
 
-        if(config.contains("presets")){
+        if (config.contains("presets"))
+        {
             world.deserialize(buildWorldWithPresets(config, carId, trackId));
-        } else if(config.contains("world")){
+        }
+        else if (config.contains("world"))
+        {
             // Backwards-compatible path.
             world.deserialize(config["world"]);
         }
+
+        debugAICount = countAICars(world);
+        std::cout << "[Playstate] Spawned AI cars: " << debugAICount << std::endl;
+
+        std::filesystem::create_directories("logs");
+        pathLog.open("logs/player_track_trace_live.csv", std::ios::out | std::ios::trunc);
+        if (pathLog.is_open())
+        {
+            pathLog << "time_s,x,y,z,yaw_deg,speed_ms\n";
+            pathLog.flush();
+            std::cout << "[Playstate] Path logging to logs/player_track_trace_live.csv (toggle with F6)" << std::endl;
+        }
+        else
+        {
+            std::cerr << "[Playstate] Failed to open logs/player_track_trace_live.csv" << std::endl;
+        }
+
+        pathLogTime = 0.0;
+        elapsedPlayTime = 0.0;
+        hasLastLoggedPos = false;
+        pathLogSamples = 0;
+
         // We initialize the camera controller system since it needs a pointer to the app
         cameraController.enter(getApp());
         carControllerSystem.enter(getApp());
@@ -122,8 +267,10 @@ class Playstate: public our::State {
         renderer.initialize(size, config["renderer"]);
     }
 
-    void onDraw(double deltaTime) override {
+    void onDraw(double deltaTime) override
+    {
         // Here, we just run a bunch of systems to control the world logic
+        elapsedPlayTime += deltaTime;
         movementSystem.update(&world, (float)deltaTime);
         carControllerSystem.update(&world, (float)deltaTime);
         wheelSpinSystem.update(&world, (float)deltaTime);
@@ -133,15 +280,59 @@ class Playstate: public our::State {
         renderer.render(&world);
 
         // Get a reference to the keyboard object
-        auto& keyboard = getApp()->getKeyboard();
+        auto &keyboard = getApp()->getKeyboard();
 
-        if(keyboard.justPressed(GLFW_KEY_ESCAPE)){
+        if (keyboard.justPressed(GLFW_KEY_F6))
+        {
+            pathLogEnabled = !pathLogEnabled;
+            std::cout << "[Playstate] Path logging " << (pathLogEnabled ? "enabled" : "disabled") << std::endl;
+        }
+
+        if (pathLogEnabled && pathLog.is_open())
+        {
+            pathLogTime += deltaTime;
+            if (pathLogTime >= pathLogPeriod)
+            {
+                auto *player = findEntityByName(world, "player");
+                if (player)
+                {
+                    auto *car = player->getComponent<our::CarControllerComponent>();
+                    const glm::vec3 p = player->localTransform.position;
+                    const float yawDeg = glm::degrees(player->localTransform.rotation.y);
+                    const float speed = car ? car->speed : 0.0f;
+
+                    bool shouldWrite = !hasLastLoggedPos;
+                    if (!shouldWrite)
+                    {
+                        const glm::vec3 d = p - lastLoggedPos;
+                        shouldWrite = (glm::dot(d, d) >= 0.04f);
+                    }
+
+                    if (shouldWrite)
+                    {
+                        pathLog << std::fixed << std::setprecision(4)
+                                << elapsedPlayTime << ","
+                                << p.x << "," << p.y << "," << p.z << ","
+                                << yawDeg << "," << speed << "\n";
+                        pathLog.flush();
+                        lastLoggedPos = p;
+                        hasLastLoggedPos = true;
+                        pathLogSamples++;
+                    }
+                }
+                pathLogTime = 0.0;
+            }
+        }
+
+        if (keyboard.justPressed(GLFW_KEY_ESCAPE))
+        {
             // If the escape  key is pressed in this frame, go to the play state
             getApp()->changeState("menu");
         }
     }
 
-    void onImmediateGui() override {
+    void onImmediateGui() override
+    {
         // Top-left coordinate system HUD.
         ImGui::SetNextWindowPos(ImVec2(10.0f, 10.0f), ImGuiCond_Always);
         ImGui::SetNextWindowBgAlpha(0.35f);
@@ -152,15 +343,21 @@ class Playstate: public our::State {
         flags |= ImGuiWindowFlags_NoFocusOnAppearing;
         flags |= ImGuiWindowFlags_NoNav;
 
-        if(ImGui::Begin("Coordinates", nullptr, flags)){
-            auto* player = findEntityByName(world, "player");
-            if(player){
+        if (ImGui::Begin("Coordinates", nullptr, flags))
+        {
+            auto *player = findEntityByName(world, "player");
+            if (player)
+            {
                 const glm::mat4 M = player->getLocalToWorldMatrix();
                 const glm::vec3 p = glm::vec3(M * glm::vec4(0, 0, 0, 1));
                 const float yawDeg = glm::degrees(player->localTransform.rotation.y);
                 ImGui::Text("pos  x %.2f  y %.2f  z %.2f", p.x, p.y, p.z);
                 ImGui::Text("yaw  %.1f deg", yawDeg);
-            } else {
+                ImGui::Text("AI cars: %d", debugAICount);
+                ImGui::Text("Path log(F6): %s  samples: %d", pathLogEnabled ? "ON" : "OFF", pathLogSamples);
+            }
+            else
+            {
                 ImGui::TextUnformatted("player not found");
             }
 
@@ -171,7 +368,7 @@ class Playstate: public our::State {
             const ImVec2 origin(cursor.x + 18.0f, cursor.y + 18.0f);
             const float s = 28.0f;
 
-            ImDrawList* dl = ImGui::GetWindowDrawList();
+            ImDrawList *dl = ImGui::GetWindowDrawList();
             dl->AddCircleFilled(origin, 2.5f, IM_COL32(255, 255, 255, 220));
 
             const ImVec2 xEnd(origin.x + s, origin.y);
@@ -205,19 +402,26 @@ class Playstate: public our::State {
             spdFlags |= ImGuiWindowFlags_NoFocusOnAppearing;
             spdFlags |= ImGuiWindowFlags_NoNav;
 
-            if(ImGui::Begin("Speed", nullptr, spdFlags)){
-                auto* player = findEntityByName(world, "player");
-                if(player){
-                    auto* car = player->getComponent<our::CarControllerComponent>();
-                    if(car){
+            if (ImGui::Begin("Speed", nullptr, spdFlags))
+            {
+                auto *player = findEntityByName(world, "player");
+                if (player)
+                {
+                    auto *car = player->getComponent<our::CarControllerComponent>();
+                    if (car)
+                    {
                         const float speedMS = std::abs(car->speed);
                         const float speedKMH = speedMS * 3.6f;
                         const bool reversing = (car->speed < -0.1f);
                         ImGui::Text("%s  %.1f km/h", reversing ? "R" : "D", speedKMH);
-                    } else {
+                    }
+                    else
+                    {
                         ImGui::TextUnformatted("no car controller");
                     }
-                } else {
+                }
+                else
+                {
                     ImGui::TextUnformatted("player not found");
                 }
             }
@@ -225,7 +429,13 @@ class Playstate: public our::State {
         }
     }
 
-    void onDestroy() override {
+    void onDestroy() override
+    {
+        if (pathLog.is_open())
+        {
+            pathLog.flush();
+            pathLog.close();
+        }
         // Don't forget to destroy the renderer
         renderer.destroy();
         // On exit, we call exit for the camera controller system to make sure that the mouse is unlocked
