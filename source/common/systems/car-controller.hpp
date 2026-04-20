@@ -25,6 +25,23 @@ namespace our {
     class CarControllerSystem {
         Application* app = nullptr;
 
+        static float resolveVerticalTarget(
+            float currentY,
+            float sampledTargetY,
+            float maxClimbHeight,
+            bool touchedWall
+        ) {
+            // Never allow wall contact to turn into upward "wall climbing".
+            if(sampledTargetY > currentY && touchedWall) return currentY;
+
+            // Always allow moving down to follow terrain.
+            if(sampledTargetY <= currentY) return sampledTargetY;
+
+            // Limit upward steps even when not touching walls.
+            if(sampledTargetY > currentY + maxClimbHeight) return currentY;
+            return sampledTargetY;
+        }
+
         static glm::vec3 getForward(float yaw){
             glm::mat4 rot = glm::yawPitchRoll(yaw, 0.0f, 0.0f);
             // Many imported car OBJs face +Z in their local space.
@@ -89,12 +106,16 @@ namespace our {
             float wallPushback,
             int wallResolveIterations,
             float maxClimbHeight,
-            TrackHeightfieldComponent::SurfaceType& outSurface
+            TrackHeightfieldComponent::SurfaceType& outSurface,
+            bool& outTouchedWall
         ) {
+            outTouchedWall = false;
+
             auto tryCandidate = [&](glm::vec3 candidate) -> MoveResult {
+                bool touchedWall = false;
                 if(track != nullptr){
                     glm::vec2 p(candidate.x, candidate.z);
-                    track->resolveWallCollision(p, collisionRadius, wallPushback, wallResolveIterations);
+                    touchedWall = track->resolveWallCollision(p, collisionRadius, wallPushback, wallResolveIterations);
                     candidate.x = p.x;
                     candidate.z = p.y;
                 }
@@ -107,22 +128,22 @@ namespace our {
                         candidate.y = position.y;
                         position.x = candidate.x;
                         position.z = candidate.z;
+                        outTouchedWall = touchedWall;
                         outSurface = TrackHeightfieldComponent::SurfaceType::Grass;
                         return MoveResult::MovedGrass;
                     }
+                    outTouchedWall = touchedWall;
                     return MoveResult::BlockedUnknown;
                 }
                 if(s.surface == TrackHeightfieldComponent::SurfaceType::Wall){
+                    outTouchedWall = true;
                     return MoveResult::BlockedWall;
                 }
 
                 const float targetY = s.y + clearance;
-                if(targetY > position.y + maxClimbHeight){
-                    return MoveResult::BlockedWall;
-                }
-
-                candidate.y = targetY;
+                candidate.y = resolveVerticalTarget(position.y, targetY, maxClimbHeight, touchedWall);
                 position = candidate;
+                outTouchedWall = touchedWall;
                 outSurface = s.surface;
                 return (s.surface == TrackHeightfieldComponent::SurfaceType::Grass)
                     ? MoveResult::MovedGrass
@@ -258,7 +279,13 @@ namespace our {
                 TrackSample startSample;
                 if(sampleTrack(track, transform.position.x, transform.position.z, startSample) &&
                    startSample.surface != TrackHeightfieldComponent::SurfaceType::Wall) {
-                    transform.position.y = startSample.y + car->groundClearance;
+                    const float targetY = startSample.y + car->groundClearance;
+                    transform.position.y = resolveVerticalTarget(
+                        transform.position.y,
+                        targetY,
+                        car->maxClimbHeight,
+                        false
+                    );
                     currentSurface = startSample.surface;
                 } else if(track != nullptr) {
                     bool recovered = false;
@@ -266,17 +293,24 @@ namespace our {
                     // First, try a local depenetration from wall segments only.
                     // This avoids large snap corrections when skimming walls or grass edges.
                     glm::vec2 nudged(transform.position.x, transform.position.z);
-                    if(track->resolveWallCollision(
+                    const bool touchedWallOnRecover = track->resolveWallCollision(
                         nudged,
                         std::max(0.05f, car->collisionRadius),
                         0.0f,
                         std::max(1, car->wallResolveIterations)
-                    )){
+                    );
+                    if(touchedWallOnRecover){
                         transform.position.x = nudged.x;
                         transform.position.z = nudged.y;
                         if(sampleTrack(track, transform.position.x, transform.position.z, startSample) &&
                            startSample.surface != TrackHeightfieldComponent::SurfaceType::Wall){
-                            transform.position.y = startSample.y + car->groundClearance;
+                            const float targetY = startSample.y + car->groundClearance;
+                            transform.position.y = resolveVerticalTarget(
+                                transform.position.y,
+                                targetY,
+                                car->maxClimbHeight,
+                                true
+                            );
                             currentSurface = startSample.surface;
                             recovered = true;
                         }
@@ -294,7 +328,13 @@ namespace our {
                                 transform.position.z = projected.y;
                                 if(sampleTrack(track, transform.position.x, transform.position.z, startSample) &&
                                    startSample.surface != TrackHeightfieldComponent::SurfaceType::Wall){
-                                    transform.position.y = startSample.y + car->groundClearance;
+                                    const float targetY = startSample.y + car->groundClearance;
+                                    transform.position.y = resolveVerticalTarget(
+                                        transform.position.y,
+                                        targetY,
+                                        car->maxClimbHeight,
+                                        false
+                                    );
                                     currentSurface = startSample.surface;
                                     recovered = true;
                                 }
@@ -358,8 +398,19 @@ namespace our {
                 const int subSteps = std::clamp((int)std::ceil(totalDistance / subStepDistance), 1, 12);
                 const glm::vec3 stepDelta = forward * ((car->speed * deltaTime) / (float)subSteps);
 
+                auto applyWallBounce = [&](){
+                    const float rebound = std::clamp(car->wallBounceDamping, 0.0f, 1.0f);
+                    const float minImpactSpeed = 0.12f;
+                    if(std::abs(car->speed) > minImpactSpeed){
+                        car->speed = -car->speed * rebound;
+                    } else {
+                        car->speed = 0.0f;
+                    }
+                };
+
                 for(int i = 0; i < subSteps; i++){
                     TrackHeightfieldComponent::SurfaceType steppedSurface = currentSurface;
+                    bool touchedWall = false;
                     const MoveResult move = tryMove(
                         track,
                         transform.position,
@@ -369,17 +420,24 @@ namespace our {
                         car->wallPushback,
                         car->wallResolveIterations,
                         car->maxClimbHeight,
-                        steppedSurface
+                        steppedSurface,
+                        touchedWall
                     );
 
                     if(move == MoveResult::MovedGrass || move == MoveResult::MovedRoad){
                         currentSurface = steppedSurface;
+
+                        // Most wall impacts are resolved by depenetration and still count as "moved".
+                        // Apply rebound on contact so hits feel physical instead of sticking/sliding only.
+                        if(touchedWall){
+                            applyWallBounce();
+                            break;
+                        }
                         continue;
                     }
 
-                    if(move == MoveResult::BlockedWall){
-                        const float keep = std::clamp(1.0f - car->wallBounceDamping, 0.0f, 1.0f);
-                        car->speed *= keep;
+                    if(move == MoveResult::BlockedWall || touchedWall){
+                        applyWallBounce();
                     } else {
                         car->speed *= 0.9f;
                     }
