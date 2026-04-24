@@ -34,14 +34,24 @@ namespace our
     {
         Application *app = nullptr;
 
-        struct ControlInput
-        {
-            float throttle = 0.0f;
-            float steer = 0.0f;
-        };
+        static float resolveVerticalTarget(
+            float currentY,
+            float sampledTargetY,
+            float maxClimbHeight,
+            bool touchedWall
+        ) {
+            // Never allow wall contact to turn into upward "wall climbing".
+            if(sampledTargetY > currentY && touchedWall) return currentY;
 
-        static glm::vec3 getForward(float yaw)
-        {
+            // Always allow moving down to follow terrain.
+            if(sampledTargetY <= currentY) return sampledTargetY;
+
+            // Limit upward steps even when not touching walls.
+            if(sampledTargetY > currentY + maxClimbHeight) return currentY;
+            return sampledTargetY;
+        }
+
+        static glm::vec3 getForward(float yaw){
             glm::mat4 rot = glm::yawPitchRoll(yaw, 0.0f, 0.0f);
             // Many imported car OBJs face +Z in their local space.
             return glm::vec3(rot * glm::vec4(0, 0, 1, 0));
@@ -68,30 +78,25 @@ namespace our
             return nullptr;
         }
 
-        struct TrackSample
-        {
+        struct TrackSample {
             bool valid = false;
             float y = 0.0f;
             TrackHeightfieldComponent::SurfaceType surface = TrackHeightfieldComponent::SurfaceType::Road;
         };
 
-        enum class MoveResult
-        {
+        enum class MoveResult {
             MovedRoad,
             MovedGrass,
             BlockedWall,
             BlockedUnknown
         };
 
-        static bool sampleTrack(const TrackHeightfieldComponent *track, float x, float z, TrackSample &out)
-        {
-            if (track == nullptr)
-                return false;
+        static bool sampleTrack(const TrackHeightfieldComponent* track, float x, float z, TrackSample& out){
+            if(track == nullptr) return false;
 
             TrackHeightfieldComponent::SurfaceType surface;
             float y = 0.0f;
-            if (!track->sampleSurface(x, z, y, surface))
-                return false;
+            if(!track->sampleSurface(x, z, y, surface)) return false;
 
             out.valid = true;
             out.y = y;
@@ -99,157 +104,78 @@ namespace our
             return true;
         }
 
-        static bool snapToTrack(const TrackHeightfieldComponent *track, glm::vec3 &position, float clearance)
-        {
+        static bool snapToTrack(const TrackHeightfieldComponent* track, glm::vec3& position, float clearance){
             TrackSample s;
-            if (!sampleTrack(track, position.x, position.z, s))
-                return false;
-            if (s.surface == TrackHeightfieldComponent::SurfaceType::Wall)
-                return false;
+            if(!sampleTrack(track, position.x, position.z, s)) return false;
+            if(s.surface == TrackHeightfieldComponent::SurfaceType::Wall) return false;
             position.y = s.y + clearance;
             return true;
         }
 
-        static float wrapAngle(float a)
-        {
-            const float pi = glm::pi<float>();
-            const float twoPi = 2.0f * pi;
-            while (a > pi)
-                a -= twoPi;
-            while (a < -pi)
-                a += twoPi;
-            return a;
-        }
+        static MoveResult tryMove(
+            const TrackHeightfieldComponent* track,
+            glm::vec3& position,
+            const glm::vec3& delta,
+            float clearance,
+            float collisionRadius,
+            float wallPushback,
+            int wallResolveIterations,
+            float maxClimbHeight,
+            TrackHeightfieldComponent::SurfaceType& outSurface,
+            bool& outTouchedWall
+        ) {
+            outTouchedWall = false;
 
-        static std::vector<glm::vec3> buildAICenterline(const TrackHeightfieldComponent *track)
-        {
-            std::vector<glm::vec3> out;
-            if (track == nullptr || track->width <= 1 || track->height <= 1)
-                return out;
-
-            glm::vec2 center(0.0f);
-            int centerCount = 0;
-
-            for (int z = 0; z < track->height; z++)
-            {
-                for (int x = 0; x < track->width; x++)
-                {
-                    const int idx = z * track->width + x;
-                    if (track->wall[(size_t)idx] != 0)
-                        continue;
-                    if (track->drivable[(size_t)idx] == 0)
-                        continue;
-                    if ((TrackHeightfieldComponent::SurfaceType)track->surfaceType[(size_t)idx] != TrackHeightfieldComponent::SurfaceType::Road)
-                        continue;
-
-                    center += glm::vec2(
-                        track->minX + ((float)x + 0.5f) * track->cellSize,
-                        track->minZ + ((float)z + 0.5f) * track->cellSize);
-                    centerCount++;
-                }
-            }
-
-            if (centerCount == 0)
-            {
-                for (int z = 0; z < track->height; z++)
-                {
-                    for (int x = 0; x < track->width; x++)
-                    {
-                        const int idx = z * track->width + x;
-                        if (track->wall[(size_t)idx] != 0)
-                            continue;
-                        if (track->drivable[(size_t)idx] == 0)
-                            continue;
-
-                        center += glm::vec2(
-                            track->minX + ((float)x + 0.5f) * track->cellSize,
-                            track->minZ + ((float)z + 0.5f) * track->cellSize);
-                        centerCount++;
-                    }
-                }
-            }
-
-            if (centerCount == 0)
-                return out;
-            center /= (float)centerCount;
-
-            const float spanX = (float)track->width * track->cellSize;
-            const float spanZ = (float)track->height * track->cellSize;
-            const float maxRadius = 0.85f * std::sqrt(spanX * spanX + spanZ * spanZ);
-            const float step = std::max(0.30f, track->cellSize * 0.8f);
-            const int rayCount = 96;
-
-            for (int i = 0; i < rayCount; i++)
-            {
-                const float a = glm::two_pi<float>() * ((float)i / (float)rayCount);
-                const glm::vec2 dir(std::cos(a), std::sin(a));
-
-                bool inside = false;
-                float firstT = -1.0f;
-                float lastT = -1.0f;
-
-                for (float t = 0.0f; t <= maxRadius; t += step)
-                {
-                    const float x = center.x + dir.x * t;
-                    const float z = center.y + dir.y * t;
-
-                    if (!track->containsXZ(x, z))
-                    {
-                        if (inside)
-                            break;
-                        continue;
-                    }
-
-                    float y = 0.0f;
-                    TrackHeightfieldComponent::SurfaceType s = TrackHeightfieldComponent::SurfaceType::Road;
-                    const bool drivable = track->sampleSurface(x, z, y, s) && s != TrackHeightfieldComponent::SurfaceType::Wall;
-
-                    if (drivable)
-                    {
-                        if (firstT < 0.0f)
-                            firstT = t;
-                        lastT = t;
-                        inside = true;
-                    }
-                    else if (inside)
-                    {
-                        break;
-                    }
+            auto tryCandidate = [&](glm::vec3 candidate) -> MoveResult {
+                bool touchedWall = false;
+                if(track != nullptr){
+                    glm::vec2 p(candidate.x, candidate.z);
+                    touchedWall = track->resolveWallCollision(p, collisionRadius, wallPushback, wallResolveIterations);
+                    candidate.x = p.x;
+                    candidate.z = p.y;
                 }
 
-                if (firstT < 0.0f || lastT <= firstT + step)
-                    continue;
-
-                const float midT = 0.5f * (firstT + lastT);
-                const glm::vec2 p2 = center + dir * midT;
-
-                float y = 0.0f;
-                TrackHeightfieldComponent::SurfaceType s = TrackHeightfieldComponent::SurfaceType::Road;
-                if (!track->sampleSurface(p2.x, p2.y, y, s) || s == TrackHeightfieldComponent::SurfaceType::Wall)
-                    continue;
-
-                out.emplace_back(p2.x, y, p2.y);
-            }
-
-            std::vector<glm::vec3> filtered;
-            filtered.reserve(out.size());
-            const float minGap2 = std::max(0.3f, step * 0.7f);
-            const float minGapSq = minGap2 * minGap2;
-            for (const auto &p : out)
-            {
-                const glm::vec2 d(filtered.empty() ? glm::vec2(0.0f) : glm::vec2(filtered.back().x - p.x, filtered.back().z - p.z));
-                if (filtered.empty() || glm::dot(d, d) > minGapSq)
-                {
-                    filtered.push_back(p);
+                TrackSample s;
+                if(!sampleTrack(track, candidate.x, candidate.z, s)){
+                    // If still inside the track bounds but no classified cell exists,
+                    // treat this as soft grass (keep current vertical position).
+                    if(track != nullptr && track->containsXZ(candidate.x, candidate.z)){
+                        candidate.y = position.y;
+                        position.x = candidate.x;
+                        position.z = candidate.z;
+                        outTouchedWall = touchedWall;
+                        outSurface = TrackHeightfieldComponent::SurfaceType::Grass;
+                        return MoveResult::MovedGrass;
+                    }
+                    outTouchedWall = touchedWall;
+                    return MoveResult::BlockedUnknown;
                 }
-            }
+                if(s.surface == TrackHeightfieldComponent::SurfaceType::Wall){
+                    outTouchedWall = true;
+                    return MoveResult::BlockedWall;
+                }
 
-            if (filtered.size() < 12)
-            {
-                filtered.clear();
-            }
+                const float targetY = s.y + clearance;
+                candidate.y = resolveVerticalTarget(position.y, targetY, maxClimbHeight, touchedWall);
+                position = candidate;
+                outTouchedWall = touchedWall;
+                outSurface = s.surface;
+                return (s.surface == TrackHeightfieldComponent::SurfaceType::Grass)
+                    ? MoveResult::MovedGrass
+                    : MoveResult::MovedRoad;
+            };
 
-            return filtered;
+            MoveResult result = tryCandidate(position + delta);
+            if(result == MoveResult::MovedRoad || result == MoveResult::MovedGrass) return result;
+
+            // Slide: try X-only then Z-only.
+            result = tryCandidate(position + glm::vec3(delta.x, 0.0f, 0.0f));
+            if(result == MoveResult::MovedRoad || result == MoveResult::MovedGrass) return result;
+
+            result = tryCandidate(position + glm::vec3(0.0f, 0.0f, delta.z));
+            if(result == MoveResult::MovedRoad || result == MoveResult::MovedGrass) return result;
+
+            return result;
         }
 
         static std::vector<glm::vec3> trimToClosedLap(std::vector<glm::vec3> points)
@@ -868,23 +794,68 @@ namespace our
                         }
                     }
 
+                TrackHeightfieldComponent::SurfaceType currentSurface = TrackHeightfieldComponent::SurfaceType::Road;
+
+                // Keep the car vertically attached to the sampled surface at start of frame.
+                TrackSample startSample;
+                if(sampleTrack(track, transform.position.x, transform.position.z, startSample) &&
+                   startSample.surface != TrackHeightfieldComponent::SurfaceType::Wall) {
+                    const float targetY = startSample.y + car->groundClearance;
+                    transform.position.y = resolveVerticalTarget(
+                        transform.position.y,
+                        targetY,
+                        car->maxClimbHeight,
+                        false
+                    );
+                    currentSurface = startSample.surface;
+                } else if(track != nullptr) {
+                    bool recovered = false;
+
+                    // First, try a local depenetration from wall segments only.
+                    // This avoids large snap corrections when skimming walls or grass edges.
+                    glm::vec2 nudged(transform.position.x, transform.position.z);
+                    const bool touchedWallOnRecover = track->resolveWallCollision(
+                        nudged,
+                        std::max(0.05f, car->collisionRadius),
+                        0.0f,
+                        std::max(1, car->wallResolveIterations)
+                    );
+                    if(touchedWallOnRecover){
+                        transform.position.x = nudged.x;
+                        transform.position.z = nudged.y;
+                        if(sampleTrack(track, transform.position.x, transform.position.z, startSample) &&
+                           startSample.surface != TrackHeightfieldComponent::SurfaceType::Wall){
+                            const float targetY = startSample.y + car->groundClearance;
+                            transform.position.y = resolveVerticalTarget(
+                                transform.position.y,
+                                targetY,
+                                car->maxClimbHeight,
+                                true
+                            );
+                            currentSurface = startSample.surface;
+                            recovered = true;
+                        }
+                    }
+
                     // If outside bounds, allow projection but keep it local to prevent teleporting.
-                    if (!recovered && !track->containsXZ(transform.position.x, transform.position.z))
-                    {
+                    if(!recovered && !track->containsXZ(transform.position.x, transform.position.z)){
                         const glm::vec2 oldXZ(transform.position.x, transform.position.z);
                         glm::vec2 projected = oldXZ;
                         constexpr int kRecoverCells = 12;
-                        if (track->projectToNearestDrivable(projected, kRecoverCells))
-                        {
+                        if(track->projectToNearestDrivable(projected, kRecoverCells)){
                             const float maxRecoverDistance = std::max(1.0f, car->collisionRadius * 10.0f);
-                            if (glm::length(projected - oldXZ) <= maxRecoverDistance)
-                            {
+                            if(glm::length(projected - oldXZ) <= maxRecoverDistance){
                                 transform.position.x = projected.x;
                                 transform.position.z = projected.y;
-                                if (sampleTrack(track, transform.position.x, transform.position.z, startSample) &&
-                                    startSample.surface != TrackHeightfieldComponent::SurfaceType::Wall)
-                                {
-                                    transform.position.y = startSample.y + car->groundClearance;
+                                if(sampleTrack(track, transform.position.x, transform.position.z, startSample) &&
+                                   startSample.surface != TrackHeightfieldComponent::SurfaceType::Wall){
+                                    const float targetY = startSample.y + car->groundClearance;
+                                    transform.position.y = resolveVerticalTarget(
+                                        transform.position.y,
+                                        targetY,
+                                        car->maxClimbHeight,
+                                        false
+                                    );
                                     currentSurface = startSample.surface;
                                     recovered = true;
                                 }
@@ -893,39 +864,22 @@ namespace our
                     }
 
                     // If still unresolved but still within track bounds, keep motion continuous.
-                    if (!recovered && track->containsXZ(transform.position.x, transform.position.z))
-                    {
+                    if(!recovered && track->containsXZ(transform.position.x, transform.position.z)){
                         currentSurface = TrackHeightfieldComponent::SurfaceType::Grass;
                     }
                 }
 
-                float throttle = 0.0f;
-                float steer = 0.0f;
-                if (auto *ai = entity->getComponent<AICarComponent>())
-                {
-                    const ControlInput aiInput = computeAIInput(track, aiCenterline, *car, *ai, transform, currentSurface);
-                    throttle = aiInput.throttle;
-                    steer = aiInput.steer;
-                }
-                else
-                {
-                    throttle = (keyboard.isPressed(GLFW_KEY_W) ? 1.0f : 0.0f) - (keyboard.isPressed(GLFW_KEY_S) ? 1.0f : 0.0f);
-                    steer = (keyboard.isPressed(GLFW_KEY_A) ? 1.0f : 0.0f) - (keyboard.isPressed(GLFW_KEY_D) ? 1.0f : 0.0f);
-                }
+                const float throttle = (keyboard.isPressed(GLFW_KEY_W) ? 1.0f : 0.0f) - (keyboard.isPressed(GLFW_KEY_S) ? 1.0f : 0.0f);
+                const float steer = (keyboard.isPressed(GLFW_KEY_A) ? 1.0f : 0.0f) - (keyboard.isPressed(GLFW_KEY_D) ? 1.0f : 0.0f);
                 const bool onGrass = (currentSurface == TrackHeightfieldComponent::SurfaceType::Grass);
                 const float accelFactor = onGrass ? car->grassAccelFactor : 1.0f;
 
                 // Update speed.
-                if (throttle > 0.0f)
-                {
+                if(throttle > 0.0f){
                     car->speed += car->acceleration * accelFactor * deltaTime;
-                }
-                else if (throttle < 0.0f)
-                {
+                } else if(throttle < 0.0f){
                     car->speed -= car->brakeAcceleration * accelFactor * deltaTime;
-                }
-                else
-                {
+                } else {
                     // Damping towards 0.
                     const float extraGrassDrag = onGrass ? (0.35f * car->grassDamping) : 0.0f;
                     const float damping = std::max(0.0f, 1.0f - (car->linearDamping + extraGrassDrag) * deltaTime);
@@ -936,18 +890,14 @@ namespace our
                 car->speed = std::clamp(car->speed, -car->maxReverseSpeed, car->maxSpeed);
 
                 // On grass, bleed excess speed smoothly toward a lower effective max.
-                if (onGrass)
-                {
+                if(onGrass){
                     const float grassForwardLimit = std::max(0.5f, car->maxSpeed * car->grassSpeedFactor);
                     const float grassReverseLimit = std::max(0.35f, car->maxReverseSpeed * car->grassSpeedFactor);
                     const float bleed = std::clamp(car->grassDamping * deltaTime, 0.0f, 1.0f);
 
-                    if (car->speed > grassForwardLimit)
-                    {
+                    if(car->speed > grassForwardLimit){
                         car->speed -= (car->speed - grassForwardLimit) * bleed;
-                    }
-                    else if (car->speed < -grassReverseLimit)
-                    {
+                    } else if(car->speed < -grassReverseLimit){
                         car->speed += ((-grassReverseLimit) - car->speed) * bleed;
                     }
                 }
@@ -970,9 +920,19 @@ namespace our
                 const int subSteps = std::clamp((int)std::ceil(totalDistance / subStepDistance), 1, 12);
                 const glm::vec3 stepDelta = forward * ((car->speed * deltaTime) / (float)subSteps);
 
-                for (int i = 0; i < subSteps; i++)
-                {
+                auto applyWallBounce = [&](){
+                    const float rebound = std::clamp(car->wallBounceDamping, 0.0f, 1.0f);
+                    const float minImpactSpeed = 0.12f;
+                    if(std::abs(car->speed) > minImpactSpeed){
+                        car->speed = -car->speed * rebound;
+                    } else {
+                        car->speed = 0.0f;
+                    }
+                };
+
+                for(int i = 0; i < subSteps; i++){
                     TrackHeightfieldComponent::SurfaceType steppedSurface = currentSurface;
+                    bool touchedWall = false;
                     const MoveResult move = tryMove(
                         track,
                         transform.position,
@@ -982,21 +942,25 @@ namespace our
                         car->wallPushback,
                         car->wallResolveIterations,
                         car->maxClimbHeight,
-                        steppedSurface);
+                        steppedSurface,
+                        touchedWall
+                    );
 
-                    if (move == MoveResult::MovedGrass || move == MoveResult::MovedRoad)
-                    {
+                    if(move == MoveResult::MovedGrass || move == MoveResult::MovedRoad){
                         currentSurface = steppedSurface;
+
+                        // Most wall impacts are resolved by depenetration and still count as "moved".
+                        // Apply rebound on contact so hits feel physical instead of sticking/sliding only.
+                        if(touchedWall){
+                            applyWallBounce();
+                            break;
+                        }
                         continue;
                     }
 
-                    if (move == MoveResult::BlockedWall)
-                    {
-                        const float keep = std::clamp(1.0f - car->wallBounceDamping, 0.0f, 1.0f);
-                        car->speed *= keep;
-                    }
-                    else
-                    {
+                    if(move == MoveResult::BlockedWall || touchedWall){
+                        applyWallBounce();
+                    } else {
                         car->speed *= 0.9f;
                     }
                     break;

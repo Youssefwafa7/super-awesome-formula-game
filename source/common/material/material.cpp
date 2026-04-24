@@ -98,6 +98,7 @@ namespace our {
         shader->set("aoValue", aoValue);
         shader->set("emissionColor", emissionColor);
         shader->set("emissionIntensity", emissionIntensity);
+        shader->set("alphaThreshold", alphaThreshold);
         shader->set("useBlinnPhong", (GLint)useBlinnPhong);
 
         // Bind maps to fixed texture units.
@@ -134,6 +135,7 @@ namespace our {
         aoValue = data.value("aoValue", aoValue);
         emissionColor = data.value("emissionColor", emissionColor);
         emissionIntensity = data.value("emissionIntensity", emissionIntensity);
+        alphaThreshold = data.value("alphaThreshold", alphaThreshold);
 
         useBlinnPhong = data.value("useBlinnPhong", useBlinnPhong);
     }

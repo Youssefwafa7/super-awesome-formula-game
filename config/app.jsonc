@@ -99,8 +99,8 @@
                 "grassAccelFactor": 0.60,
                 "wallBounceDamping": 0.32,
                 "collisionSubstepDistance": 0.12,
-                "collisionRadius": 0.2,
-                "wallPushback": 0.015,
+                "collisionRadius": 0.13,
+                "wallPushback": 0.004,
                 "wallResolveIterations": 4,
                 "maxClimbHeight": 0.22,
                 "wheelSteerMaxAngle": 30.0,
@@ -166,8 +166,8 @@
                 "grassAccelFactor": 0.60,
                 "wallBounceDamping": 0.32,
                 "collisionSubstepDistance": 0.12,
-                "collisionRadius": 0.2,
-                "wallPushback": 0.015,
+                "collisionRadius": 0.13,
+                "wallPushback": 0.004,
                 "wallResolveIterations": 4,
                 "maxClimbHeight": 0.22,
                 "wheelSteerMaxAngle": 30.0,
@@ -217,14 +217,14 @@
               {
                 "type": "Track Heightfield",
                 "obj": "assets/models/race_trackkarting_track_based_on_south_garda/race_trackkarting_track_based_on_south_garda.obj",
-                "cellSize": 0.5,
+                "cellSize": 0.2,
                 "minNormalY": 0.6,
-                "hardWallNormalY": 0.02,
+                "hardWallNormalY": 0.12,
                 "treatUnknownAsGrass": true,
                 "grassSearchCells": 4,
                 "buildWallSegments": true,
                 "wallCollisionDilateCells": 0,
-                "wallCollisionMargin": 0.01,
+                "wallCollisionMargin": 0.0,
                 "roadTextureHints": [
                   "road",
                   "asphalt",
@@ -246,8 +246,6 @@
                   "fence",
                   "guardrail",
                   "rail",
-                  "curb",
-                  "kerb",
                   "tire",
                   "tyre"
                 ]
@@ -272,26 +270,26 @@
           "label": "Mini Silverstone",
           "spawn": {
             // Spawn on the start/finish area (world coordinates).
-            "position": [24.12, -2.63, 44.77],
-            "rotation": [0, -132.3, 0]
+            "position": [28.53, 18, -13],
+            "rotation": [0, 0, 0]
           },
           "entity": {
             "name": "track",
             "position": [0.0, 0.0, 0.0],
-            "rotation": [-90, 0, 0],
-            "scale": [1.5, 1.5, 1.5],
+            "rotation": [0, 0, 0],
+            "scale": [0.5, 0.5, 0.5],
             "components": [
               {
                 "type": "Track Heightfield",
-                "obj": "assets/models/mini_silverstone/mini_silverstone.obj",
-                "cellSize": 0.5,
+                "obj": "assets/models/silverstone-cartoon/Cartoon_Race_Track_Silverstone.obj",
+                "cellSize": 0.6,
                 "minNormalY": 0.6,
-                "hardWallNormalY": 0.02,
+                "hardWallNormalY": 0.0,
                 "treatUnknownAsGrass": true,
-                "grassSearchCells": 4,
+                "grassSearchCells": 2,
                 "buildWallSegments": true,
                 "wallCollisionDilateCells": 0,
-                "wallCollisionMargin": 0.01,
+                "wallCollisionMargin": 0.0,
                 "roadTextureHints": [
                   "road",
                   "asphalt",
@@ -313,15 +311,13 @@
                   "fence",
                   "guardrail",
                   "rail",
-                  "curb",
-                  "kerb",
                   "tire",
                   "tyre"
                 ]
               },
               {
                 "type": "Multi Mesh Renderer",
-                "obj": "assets/models/mini_silverstone/mini_silverstone.obj",
+                "obj": "assets/models/silverstone-cartoon/Cartoon_Race_Track_Silverstone.obj",
                 "shader": "lit",
                 "sampler": "default",
                 "debugPrintParts": false,

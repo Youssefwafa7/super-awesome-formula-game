@@ -333,11 +333,62 @@ namespace our {
             const float area2 = std::abs((b2.x - a2.x) * (c2.y - a2.y) - (b2.y - a2.y) * (c2.x - a2.x));
 
             // Degenerate projected triangles are common for vertical walls.
-            // Mark the covered cell range directly to avoid over-blocking the whole map.
+            // Rasterize as a thin line along the longest projected edge.
+            // This avoids very wide false wall regions from bbox filling.
             if(area2 < 1e-6f){
-                for(int z = z0; z <= z1; z++){
-                    for(int x = x0; x <= x1; x++){
-                        wall[(size_t)index(x, z)] = 1;
+                const glm::vec2 p[3] = {a2, b2, c2};
+
+                int i0 = 0, i1 = 1;
+                float bestLen2 = glm::dot(p[1] - p[0], p[1] - p[0]);
+                const float l12 = glm::dot(p[2] - p[1], p[2] - p[1]);
+                const float l20 = glm::dot(p[0] - p[2], p[0] - p[2]);
+                if(l12 > bestLen2){ bestLen2 = l12; i0 = 1; i1 = 2; }
+                if(l20 > bestLen2){ bestLen2 = l20; i0 = 2; i1 = 0; }
+
+                const glm::vec2 s0 = p[i0];
+                const glm::vec2 s1 = p[i1];
+                const glm::vec2 seg = s1 - s0;
+
+                // Keep walls approximately one cell thick in the degenerate case.
+                const float lineRadius = std::max(0.5f * cellSize, 1e-4f);
+                const float lineRadius2 = lineRadius * lineRadius;
+
+                if(bestLen2 < 1e-10f){
+                    const int gx = (int)std::floor((s0.x - minX) / cellSize);
+                    const int gz = (int)std::floor((s0.y - minZ) / cellSize);
+                    if(gx >= 0 && gx < width && gz >= 0 && gz < height){
+                        wall[(size_t)index(gx, gz)] = 1;
+                    }
+                    return;
+                }
+
+                const float minLX = std::min(s0.x, s1.x) - lineRadius;
+                const float maxLX = std::max(s0.x, s1.x) + lineRadius;
+                const float minLZ = std::min(s0.y, s1.y) - lineRadius;
+                const float maxLZ = std::max(s0.y, s1.y) + lineRadius;
+
+                int lx0 = (int)std::floor((minLX - minX) / cellSize);
+                int lx1 = (int)std::floor((maxLX - minX) / cellSize);
+                int lz0 = (int)std::floor((minLZ - minZ) / cellSize);
+                int lz1 = (int)std::floor((maxLZ - minZ) / cellSize);
+
+                lx0 = std::clamp(lx0, 0, width - 1);
+                lx1 = std::clamp(lx1, 0, width - 1);
+                lz0 = std::clamp(lz0, 0, height - 1);
+                lz1 = std::clamp(lz1, 0, height - 1);
+
+                for(int z = lz0; z <= lz1; z++){
+                    for(int x = lx0; x <= lx1; x++){
+                        const float cx = minX + (x + 0.5f) * cellSize;
+                        const float cz = minZ + (z + 0.5f) * cellSize;
+                        const glm::vec2 cp(cx, cz);
+
+                        const float t = glm::clamp(glm::dot(cp - s0, seg) / bestLen2, 0.0f, 1.0f);
+                        const glm::vec2 closest = s0 + seg * t;
+                        const glm::vec2 d = cp - closest;
+                        if(glm::dot(d, d) <= lineRadius2){
+                            wall[(size_t)index(x, z)] = 1;
+                        }
                     }
                 }
                 return;

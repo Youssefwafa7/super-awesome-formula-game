@@ -30,7 +30,7 @@ namespace our {
         float grassAccelFactor = 0.90f;      // throttle/brake response factor on grass
 
         // Hard wall-collision tuning
-        float wallBounceDamping = 0.32f;     // speed reduction on wall impact (0..1)
+        float wallBounceDamping = 0.32f;     // rebound speed factor on wall impact (0..1)
         float collisionSubstepDistance = 0.12f; // smaller = more stable collision at high speed
         float collisionRadius = 0.42f;       // XZ collision radius for wall segments
         float wallPushback = 0.03f;          // extra push away from walls after contact
