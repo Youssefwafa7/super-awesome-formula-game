@@ -270,23 +270,23 @@
           "label": "Mini Silverstone",
           "spawn": {
             // Spawn on the start/finish area (world coordinates).
-            "position": [24.12, -2.63, 44.77],
-            "rotation": [0, -132.3, 0]
+            "position": [28.53, 18, -13],
+            "rotation": [0, 0, 0]
           },
           "entity": {
             "name": "track",
             "position": [0.0, 0.0, 0.0],
-            "rotation": [-90, 0, 0],
-            "scale": [1.5, 1.5, 1.5],
+            "rotation": [0, 0, 0],
+            "scale": [0.5, 0.5, 0.5],
             "components": [
               {
                 "type": "Track Heightfield",
-                "obj": "assets/models/mini_silverstone/mini_silverstone.obj",
-                "cellSize": 0.2,
+                "obj": "assets/models/silverstone-cartoon/Cartoon_Race_Track_Silverstone.obj",
+                "cellSize": 0.6,
                 "minNormalY": 0.6,
-                "hardWallNormalY": 0.12,
+                "hardWallNormalY": 0.0,
                 "treatUnknownAsGrass": true,
-                "grassSearchCells": 4,
+                "grassSearchCells": 2,
                 "buildWallSegments": true,
                 "wallCollisionDilateCells": 0,
                 "wallCollisionMargin": 0.0,
@@ -317,7 +317,7 @@
               },
               {
                 "type": "Multi Mesh Renderer",
-                "obj": "assets/models/mini_silverstone/mini_silverstone.obj",
+                "obj": "assets/models/silverstone-cartoon/Cartoon_Race_Track_Silverstone.obj",
                 "shader": "lit",
                 "sampler": "default",
                 "debugPrintParts": false,
