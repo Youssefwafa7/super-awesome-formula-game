@@ -31,6 +31,7 @@ uniform float metallicValue;
 uniform float aoValue;
 uniform vec3 emissionColor;
 uniform float emissionIntensity;
+uniform float alphaThreshold;
 uniform int useBlinnPhong;
 
 // Camera
@@ -96,6 +97,12 @@ float attenuatePoint(vec3 att, float d){
 }
 
 void main(){
+    float albedoAlpha = 1.0;
+    if(hasAlbedoMap != 0){
+        albedoAlpha = texture(albedoMap, fs_in.tex_coord).a;
+    }
+    if(albedoAlpha < alphaThreshold) discard;
+
     vec3 N = normalize(fs_in.world_normal);
     vec3 V = normalize(cameraPosition - fs_in.world_pos);
 
@@ -173,5 +180,5 @@ void main(){
     vec3 mapped = vec3(1.0) - exp(-max(finalColor, vec3(0.0)) * exposure);
     mapped = linearToSrgb(mapped);
 
-    frag_color = vec4(mapped, tint.a);
+    frag_color = vec4(mapped, tint.a * albedoAlpha);
 }

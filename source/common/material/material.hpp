@@ -74,6 +74,7 @@ namespace our {
         float aoValue = 1.0f;
         glm::vec3 emissionColor = glm::vec3(1.0f);
         float emissionIntensity = 0.0f;
+        float alphaThreshold = 0.1f;
 
         bool useBlinnPhong = true;
 

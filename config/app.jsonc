@@ -1,315 +1,392 @@
 {
-    "start-scene": "menu",
-    "window":
-    {
-        "title":"Super Awesome Formula Game",
-        "size":{
-            "width":1280,
-            "height":720
-        },
-        "fullscreen": false
+  "start-scene": "menu",
+  "window": {
+    "title": "Super Awesome Formula Game",
+    "size": {
+      "width": 1280,
+      "height": 720
     },
-    "scene": {
-        "renderer":{
-            "sky": "assets/textures/sky.jpg",
-            "sun": "assets/textures/sun.png",
-            "sunDirection": [-2.0, -0.75, -0.45],
-            "sunDistance": 500.0,
-            "sunScale": 35.0,
-            "sunTint": 3.0,
-            "sunLightEnabled": true,
-            "sunLightColor": [1.0, 0.97, 0.9],
-            "sunLightIntensity": 1.6,
-            // "postprocess": "assets/shaders/postprocess/vignette.frag",
-            "ambient": {
-                "color": [0.05, 0.06, 0.08],
-                "intensity": 1.0
-            }
+    "fullscreen": false
+  },
+  "scene": {
+    "renderer": {
+      "sky": "assets/textures/sky.jpg",
+      "sun": "assets/textures/sun.png",
+      "sunDirection": [-2.0, -0.75, -0.45],
+      "sunDistance": 500.0,
+      "sunScale": 35.0,
+      "sunTint": 3.0,
+      "sunLightEnabled": true,
+      "sunLightColor": [1.0, 0.97, 0.9],
+      "sunLightIntensity": 1.6,
+      // "postprocess": "assets/shaders/postprocess/vignette.frag",
+      "ambient": {
+        "color": [0.05, 0.06, 0.08],
+        "intensity": 1.0
+      }
+    },
+    "assets": {
+      "shaders": {
+        "tinted": {
+          "vs": "assets/shaders/tinted.vert",
+          "fs": "assets/shaders/tinted.frag"
         },
-        "assets":{
-            "shaders":{
-                "tinted":{
-                    "vs":"assets/shaders/tinted.vert",
-                    "fs":"assets/shaders/tinted.frag"
-                },
-                "textured":{
-                    "vs":"assets/shaders/textured.vert",
-                    "fs":"assets/shaders/textured.frag"
-                },
-                "lit":{
-                    "vs":"assets/shaders/lit.vert",
-                    "fs":"assets/shaders/lit.frag"
-                }
-            },
-            "meshes":{
-                "standard_kart": "assets/models/standard_kart/standard_kart.obj",
-                "boom_karts_kart" : "assets/models/boom_karts_kart/boom_karts_kart.obj"
-            },
-            "samplers":{
-                "default":{},
-                "pixelated":{
-                    "MAG_FILTER": "GL_NEAREST"
-                }
-            },
-            "materials":{}
+        "textured": {
+          "vs": "assets/shaders/textured.vert",
+          "fs": "assets/shaders/textured.frag"
         },
+        "lit": {
+          "vs": "assets/shaders/lit.vert",
+          "fs": "assets/shaders/lit.frag"
+        }
+      },
+      "meshes": {
+        "standard_kart": "assets/models/standard_kart/standard_kart.obj",
+        "boom_karts_kart": "assets/models/boom_karts_kart/boom_karts_kart.obj"
+      },
+      "samplers": {
+        "default": {},
+        "pixelated": {
+          "MAG_FILTER": "GL_NEAREST"
+        }
+      },
+      "materials": {}
+    },
 
-        // Default selection (used on launch; the menu lets you change these).
-        "selection": {
-            "car": "standard_kart",
-            "track": "race_trackkarting_track_based_on_south_garda"
-        },
+    // Default selection (used on launch; the menu lets you change these).
+    "selection": {
+      "car": "standard_kart",
+      "track": "race_trackkarting_track_based_on_south_garda"
+    },
 
-        // Presets for cars and tracks.
-        // Each preset carries the correct scaling/rotation/positioning so you can switch in-game without mis-sized assets.
-        "presets": {
-            "cars": [
-                // Car preset: Standard Kart
-                // OBJ size is ~14.6 units long, so we scale it down to ~1.5 world units.
-                {
-                    "id": "standard_kart",
-                    "label": "Standard Kart",
-                    "entity": {
-                        "name": "player",
-                        "position": [0.0, 0.0, 0.0],
-                        "rotation": [0, 90, 0],
-                        "scale": [0.1, 0.1, 0.1],
-                        "components": [
-                            {
-                                "type": "Light",
-                                "lightType": "spot",
-                                "color": [1.0, 1.0, 1.0],
-                                "intensity": 30.0,
-                                "attenuation": [1.0, 0.03, 0.002],
-                                "innerAngle": 12.0,
-                                "outerAngle": 22.0,
-                                "positionOffset": [0.0, 0.35, 8.0],
-                                "invertDirection": true
-                            },
-                            {
-                                "type": "Car Controller",
-                                "acceleration": 14.0,
-                                "brakeAcceleration": 20.0,
-                                "maxSpeed": 20.0,
-                                "maxReverseSpeed": 7.0,
-                                "turnSpeed": 2.2,
-                                "linearDamping": 4.0,
-                                "wheelSteerMaxAngle": 30.0,
-                                "groundClearance": 0.12
-                            },
-                            {
-                                "type": "Multi Mesh Renderer",
-                                "mesh": "standard_kart",
-                                "shader": "lit",
-                                "sampler": "default",
-                                "pipelineState": {
-                                    "faceCulling": { "enabled": false },
-                                    "depthTesting": { "enabled": true }
-                                },
-                                "tint": [1, 1, 1, 1]
-                            },
-                            {
-                                "type": "Wheel Spin",
-                                "axis": "auto",
-                                "direction": 1.0,
-                                "desiredWheelCount": 4,
-                                "includeNameSubstrings": ["wheel", "tire", "tyre", "rim"],
-                                "excludeNameSubstrings": ["body", "chassis"],
-                                "debugPrintParts": false
-                            }
-                        ]
-                    }
+    // Presets for cars and tracks.
+    // Each preset carries the correct scaling/rotation/positioning so you can switch in-game without mis-sized assets.
+    "presets": {
+      "cars": [
+        // Car preset: Standard Kart
+        // OBJ size is ~14.6 units long, so we scale it down to ~1.5 world units.
+        {
+          "id": "standard_kart",
+          "label": "Standard Kart",
+          "entity": {
+            "name": "player",
+            "position": [0.0, 0.0, 0.0],
+            "rotation": [0, 90, 0],
+            "scale": [0.1, 0.1, 0.1],
+            "components": [
+              {
+                "type": "Light",
+                "lightType": "spot",
+                "color": [1.0, 1.0, 1.0],
+                "intensity": 30.0,
+                "attenuation": [1.0, 0.03, 0.002],
+                "innerAngle": 12.0,
+                "outerAngle": 22.0,
+                "positionOffset": [0.0, 0.35, 8.0],
+                "invertDirection": true
+              },
+              {
+                "type": "Car Controller",
+                "acceleration": 14.0,
+                "brakeAcceleration": 20.0,
+                "maxSpeed": 20.0,
+                "maxReverseSpeed": 7.0,
+                "turnSpeed": 2.2,
+                "linearDamping": 4.0,
+                "grassSpeedFactor": 0.7,
+                "grassDamping": 3.8,
+                "grassTurnFactor": 0.60,
+                "grassAccelFactor": 0.60,
+                "wallBounceDamping": 0.32,
+                "collisionSubstepDistance": 0.12,
+                "collisionRadius": 0.13,
+                "wallPushback": 0.004,
+                "wallResolveIterations": 4,
+                "maxClimbHeight": 0.22,
+                "wheelSteerMaxAngle": 30.0,
+                "groundClearance": 0.12
+              },
+              {
+                "type": "Multi Mesh Renderer",
+                "mesh": "standard_kart",
+                "shader": "lit",
+                "sampler": "default",
+                "pipelineState": {
+                  "faceCulling": { "enabled": false },
+                  "depthTesting": { "enabled": true }
                 },
-
-                // Car preset: Boom Karts Kart
-                // This OBJ is extremely tiny in its authoring units, so it needs a large scale.
-                {
-                    "id": "boom_karts_kart",
-                    "label": "Boom Karts Kart",
-                    "entity": {
-                        "name": "player",
-                        "position": [0.0, 0.0, 0.0],
-                        "rotation": [0, 90, 0],
-                        "scale": [70.0, 70.0, 70.0],
-                        "components": [
-                            {
-                                "type": "Light",
-                                "lightType": "spot",
-                                "color": [1.0, 1.0, 1.0],
-                                "intensity": 20.0,
-                                "attenuation": [1.0, 0.03, 0.002],
-                                "innerAngle": 12.0,
-                                "outerAngle": 22.0,
-                                "positionOffset": [0.0, 0.0001, 0.003],
-                                "invertDirection": true
-                            },
-                            {
-                                "type": "Car Controller",
-                                "acceleration": 14.0,
-                                "brakeAcceleration": 20.0,
-                                "maxSpeed": 20.0,
-                                "maxReverseSpeed": 7.0,
-                                "turnSpeed": 2.2,
-                                "linearDamping": 4.0,
-                                "wheelSteerMaxAngle": 30.0,
-                                "groundClearance": 0.26
-                            },
-                            {
-                                "type": "Multi Mesh Renderer",
-                                "mesh": "boom_karts_kart",
-                                "recenterToOrigin": true,
-                                "shader": "lit",
-                                "sampler": "default",
-                                "pipelineState": {
-                                    "faceCulling": { "enabled": false },
-                                    "depthTesting": { "enabled": true }
-                                },
-                                "tint": [1, 1, 1, 1]
-                            },
-                            {
-                                "type": "Wheel Spin",
-                                "axis": "auto",
-                                "direction": 1.0,
-                                "desiredWheelCount": 4,
-                                "includeNameSubstrings": ["wheel", "tire", "tyre", "rim"],
-                                "excludeNameSubstrings": ["body", "chassis"],
-                                "debugPrintParts": false
-                            }
-                        ]
-                    }
-                }
-            ],
-
-            "tracks": [
-                // Track preset: South Garda Karting
-                {
-                    "id": "south_garda",
-                    "label": "South Garda Karting",
-                    "spawn": {
-                        "position": [40.35, 0.48, 3.83],
-                        "rotation": [0, -267, 0]
-                    },
-                    "entity": {
-                        "name": "track",
-                        "position": [-18.04, 0.0, -26.12],
-                        "rotation": [0, 0, 0],
-                        "scale": [50.0, 50.0, 50.0],
-                        "components": [
-                            {
-                                "type": "Track Heightfield",
-                                "obj": "assets/models/race_trackkarting_track_based_on_south_garda/race_trackkarting_track_based_on_south_garda.obj",
-                                "cellSize": 0.5,
-                                "minNormalY": 0.6
-                            },
-                            {
-                                "type": "Multi Mesh Renderer",
-                                "obj": "assets/models/race_trackkarting_track_based_on_south_garda/race_trackkarting_track_based_on_south_garda.obj",
-                                "shader": "lit",
-                                "sampler": "default",
-                                "debugPrintParts": false,
-                                "pipelineState": {
-                                    "faceCulling": { "enabled": false },
-                                    "depthTesting": { "enabled": true }
-                                }
-                            }
-                        ]
-                    }
-                },
-                // Track preset: Mini Silverstone
-                {
-                    "id": "mini_silverstone",
-                    "label": "Mini Silverstone",
-                    "spawn": {
-                        // Spawn on the start/finish area (world coordinates).
-                        "position": [24.12, -2.63, 44.77],
-                        "rotation": [0, -132.3, 0]
-                    },
-                    "entity": {
-                        "name": "track",
-                        "position": [0.0, 0.0, 0.0],
-                        "rotation": [-90, 0, 0],
-                        "scale": [1.5, 1.5, 1.5],
-                        "components": [
-                            {
-                                "type": "Track Heightfield",
-                                "obj": "assets/models/mini_silverstone/mini_silverstone.obj",
-                                "cellSize": 0.5,
-                                "minNormalY": 0.6
-                            },
-                            {
-                                "type": "Multi Mesh Renderer",
-                                "obj": "assets/models/mini_silverstone/mini_silverstone.obj",
-                                "shader": "lit",
-                                "sampler": "default",
-                                "debugPrintParts": false,
-                                "pipelineState": {
-                                    "faceCulling": { "enabled": false },
-                                    "depthTesting": { "enabled": true }
-                                }
-                            }
-                        ]
-                    }
-                }
-
+                "tint": [1, 1, 1, 1]
+              },
+              {
+                "type": "Wheel Spin",
+                "axis": "auto",
+                "direction": 1.0,
+                "desiredWheelCount": 4,
+                "includeNameSubstrings": ["wheel", "tire", "tyre", "rim"],
+                "excludeNameSubstrings": ["body", "chassis"],
+                "debugPrintParts": false
+              }
             ]
+          }
         },
 
-        "world":[
-            {
-                "name": "moon_light",
-                "rotation": [-35, 35, 0],
-                "components": [
-                    {
-                        "type": "Light",
-                        "lightType": "directional",
-                        "color": [0.55, 0.65, 1.0],
-                        "intensity": 1.2
-                    }
+        // Car preset: Boom Karts Kart
+        // This OBJ is extremely tiny in its authoring units, so it needs a large scale.
+        {
+          "id": "boom_karts_kart",
+          "label": "Boom Karts Kart",
+          "entity": {
+            "name": "player",
+            "position": [0.0, 0.0, 0.0],
+            "rotation": [0, 90, 0],
+            "scale": [70.0, 70.0, 70.0],
+            "components": [
+              {
+                "type": "Light",
+                "lightType": "spot",
+                "color": [1.0, 1.0, 1.0],
+                "intensity": 20.0,
+                "attenuation": [1.0, 0.03, 0.002],
+                "innerAngle": 12.0,
+                "outerAngle": 22.0,
+                "positionOffset": [0.0, 0.0001, 0.003],
+                "invertDirection": true
+              },
+              {
+                "type": "Car Controller",
+                "acceleration": 14.0,
+                "brakeAcceleration": 20.0,
+                "maxSpeed": 20.0,
+                "maxReverseSpeed": 7.0,
+                "turnSpeed": 2.2,
+                "linearDamping": 4.0,
+                "grassSpeedFactor": 0.7,
+                "grassDamping": 3.8,
+                "grassTurnFactor": 0.60,
+                "grassAccelFactor": 0.60,
+                "wallBounceDamping": 0.32,
+                "collisionSubstepDistance": 0.12,
+                "collisionRadius": 0.13,
+                "wallPushback": 0.004,
+                "wallResolveIterations": 4,
+                "maxClimbHeight": 0.22,
+                "wheelSteerMaxAngle": 30.0,
+                "groundClearance": 0.26
+              },
+              {
+                "type": "Multi Mesh Renderer",
+                "mesh": "boom_karts_kart",
+                "recenterToOrigin": true,
+                "shader": "lit",
+                "sampler": "default",
+                "pipelineState": {
+                  "faceCulling": { "enabled": false },
+                  "depthTesting": { "enabled": true }
+                },
+                "tint": [1, 1, 1, 1]
+              },
+              {
+                "type": "Wheel Spin",
+                "axis": "auto",
+                "direction": 1.0,
+                "desiredWheelCount": 4,
+                "includeNameSubstrings": ["wheel", "tire", "tyre", "rim"],
+                "excludeNameSubstrings": ["body", "chassis"],
+                "debugPrintParts": false
+              }
+            ]
+          }
+        }
+      ],
+
+      "tracks": [
+        // Track preset: South Garda Karting
+        {
+          "id": "south_garda",
+          "label": "South Garda Karting",
+          "spawn": {
+            "position": [40.35, 0.48, 3.83],
+            "rotation": [0, -267, 0]
+          },
+          "entity": {
+            "name": "track",
+            "position": [-18.04, 0.0, -26.12],
+            "rotation": [0, 0, 0],
+            "scale": [50.0, 50.0, 50.0],
+            "components": [
+              {
+                "type": "Track Heightfield",
+                "obj": "assets/models/race_trackkarting_track_based_on_south_garda/race_trackkarting_track_based_on_south_garda.obj",
+                "cellSize": 0.2,
+                "minNormalY": 0.6,
+                "hardWallNormalY": 0.12,
+                "treatUnknownAsGrass": true,
+                "grassSearchCells": 4,
+                "buildWallSegments": true,
+                "wallCollisionDilateCells": 0,
+                "wallCollisionMargin": 0.0,
+                "roadTextureHints": [
+                  "road",
+                  "asphalt",
+                  "track",
+                  "line",
+                  "concrete"
+                ],
+                "grassTextureHints": [
+                  "grass",
+                  "terrain",
+                  "ground",
+                  "turf",
+                  "soil",
+                  "dirt"
+                ],
+                "wallTextureHints": [
+                  "wall",
+                  "barrier",
+                  "fence",
+                  "guardrail",
+                  "rail",
+                  "tire",
+                  "tyre"
                 ]
-            },
-            {
-                "name": "sun_light",
-                "rotation": [-55, -35, 0],
-                "components": [
-                    {
-                        "type": "Light",
-                        "lightType": "directional",
-                        "color": [1.0, 0.95, 0.85],
-                        "intensity": 0.0
-                    }
+              },
+              {
+                "type": "Multi Mesh Renderer",
+                "obj": "assets/models/race_trackkarting_track_based_on_south_garda/race_trackkarting_track_based_on_south_garda.obj",
+                "shader": "lit",
+                "sampler": "default",
+                "debugPrintParts": false,
+                "pipelineState": {
+                  "faceCulling": { "enabled": false },
+                  "depthTesting": { "enabled": true }
+                }
+              }
+            ]
+          }
+        },
+        // Track preset: Mini Silverstone
+        {
+          "id": "mini_silverstone",
+          "label": "Mini Silverstone",
+          "spawn": {
+            // Spawn on the start/finish area (world coordinates).
+            "position": [28.53, 18, -13],
+            "rotation": [0, 0, 0]
+          },
+          "entity": {
+            "name": "track",
+            "position": [0.0, 0.0, 0.0],
+            "rotation": [0, 0, 0],
+            "scale": [0.5, 0.5, 0.5],
+            "components": [
+              {
+                "type": "Track Heightfield",
+                "obj": "assets/models/silverstone-cartoon/Cartoon_Race_Track_Silverstone.obj",
+                "cellSize": 0.6,
+                "minNormalY": 0.6,
+                "hardWallNormalY": 0.0,
+                "treatUnknownAsGrass": true,
+                "grassSearchCells": 2,
+                "buildWallSegments": true,
+                "wallCollisionDilateCells": 0,
+                "wallCollisionMargin": 0.0,
+                "roadTextureHints": [
+                  "road",
+                  "asphalt",
+                  "track",
+                  "line",
+                  "concrete"
+                ],
+                "grassTextureHints": [
+                  "grass",
+                  "terrain",
+                  "ground",
+                  "turf",
+                  "soil",
+                  "dirt"
+                ],
+                "wallTextureHints": [
+                  "wall",
+                  "barrier",
+                  "fence",
+                  "guardrail",
+                  "rail",
+                  "tire",
+                  "tyre"
                 ]
-            },
-            {
-                "name": "streetlamp_0",
-                "position": [10.0, 4.5, 3.5],
-                "components": [
-                    {
-                        "type": "Light",
-                        "lightType": "point",
-                        "color": [1.0, 0.9, 0.75],
-                        "intensity": 12.0,
-                        "attenuation": [1.0, 0.09, 0.032]
-                    }
-                ]
-            },
-            {
-                "name": "main_camera",
-                "position": [0, 0, 10],
-                "components": [
-                    {
-                        "type": "Camera"
-                    },
-                    {
-                        "type": "Chase Camera",
-                        "target": "player",
-                        "offset": [0.0, 3.0, -3.8],
-                        "lockRotation": true,
-                        "pitch": -0.25,
-                        "lookAtOffset": [0.0, 0.7, 0.6]
-                    }
-                ]        
-            }
-             
+              },
+              {
+                "type": "Multi Mesh Renderer",
+                "obj": "assets/models/silverstone-cartoon/Cartoon_Race_Track_Silverstone.obj",
+                "shader": "lit",
+                "sampler": "default",
+                "debugPrintParts": false,
+                "pipelineState": {
+                  "faceCulling": { "enabled": false },
+                  "depthTesting": { "enabled": true }
+                }
+              }
+            ]
+          }
+        }
+      ]
+    },
+
+    "world": [
+      {
+        "name": "moon_light",
+        "rotation": [-35, 35, 0],
+        "components": [
+          {
+            "type": "Light",
+            "lightType": "directional",
+            "color": [0.55, 0.65, 1.0],
+            "intensity": 1.2
+          }
         ]
-    }
+      },
+      {
+        "name": "sun_light",
+        "rotation": [-55, -35, 0],
+        "components": [
+          {
+            "type": "Light",
+            "lightType": "directional",
+            "color": [1.0, 0.95, 0.85],
+            "intensity": 0.0
+          }
+        ]
+      },
+      {
+        "name": "streetlamp_0",
+        "position": [10.0, 4.5, 3.5],
+        "components": [
+          {
+            "type": "Light",
+            "lightType": "point",
+            "color": [1.0, 0.9, 0.75],
+            "intensity": 12.0,
+            "attenuation": [1.0, 0.09, 0.032]
+          }
+        ]
+      },
+      {
+        "name": "main_camera",
+        "position": [0, 0, 10],
+        "components": [
+          {
+            "type": "Camera"
+          },
+          {
+            "type": "Chase Camera",
+            "target": "player",
+            "offset": [0.0, 3.0, -3.8],
+            "lockRotation": true,
+            "pitch": -0.25,
+            "lookAtOffset": [0.0, 0.7, 0.6]
+          }
+        ]
+      }
+    ]
+  }
 }
