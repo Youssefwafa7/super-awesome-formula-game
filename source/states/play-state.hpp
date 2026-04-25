@@ -14,6 +14,7 @@
 #include <components/camera.hpp>
 #include <components/car-controller.hpp>
 #include <components/track-heightfield.hpp>
+#include "miniaudio.h"
 
 #include <algorithm>
 #include <cmath>
@@ -47,6 +48,12 @@ class Playstate: public our::State {
     };
 
     bool freeRoaming = false;
+
+    // ── Audio ──
+    ma_engine audioEngine;
+    ma_sound playMusic;
+    bool isAudioInitialized = false;
+    bool isMusicLoaded = false;
 
     static our::Entity* findEntityByName(our::World& world, const std::string& name){
         for(auto* e : world.getEntities()){
@@ -320,6 +327,16 @@ class Playstate: public our::State {
         // Then we initialize the renderer
         auto size = getApp()->getFrameBufferSize();
         renderer.initialize(size, config["renderer"]);
+
+        // Initialize Audio Engine and start music
+        if (ma_engine_init(NULL, &audioEngine) == MA_SUCCESS) {
+            isAudioInitialized = true;
+            if (ma_sound_init_from_file(&audioEngine, "assets/audio/17. Into the Pipe (Hurry Up!).mp3", 0, NULL, NULL, &playMusic) == MA_SUCCESS) {
+                isMusicLoaded = true;
+                ma_sound_set_looping(&playMusic, MA_FALSE);
+                ma_sound_start(&playMusic);
+            }
+        }
     }
 
     void onDraw(double deltaTime) override {
@@ -485,5 +502,14 @@ class Playstate: public our::State {
         world.clear();
         // and we delete all the loaded assets to free memory on the RAM and the VRAM
         our::clearAllAssets();
+
+        if (isMusicLoaded) {
+            ma_sound_uninit(&playMusic);
+            isMusicLoaded = false;
+        }
+        if (isAudioInitialized) {
+            ma_engine_uninit(&audioEngine);
+            isAudioInitialized = false;
+        }
     }
 };
