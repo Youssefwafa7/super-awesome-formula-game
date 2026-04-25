@@ -3,12 +3,15 @@
 #include "../asset-loader.hpp"
 #include "../ecs/entity.hpp"
 
-#include <tinyobj/tiny_obj_loader.h>
+#include <assimp/Importer.hpp>
+#include <assimp/scene.h>
+#include <assimp/postprocess.h>
 
 #include <algorithm>
 #include <cctype>
 #include <cmath>
 #include <iostream>
+#include <unordered_map>
 
 namespace our {
 
@@ -257,43 +260,62 @@ namespace our {
         return true;
     }
 
-    void TrackHeightfieldComponent::buildFromOBJ(const std::string& objPath, const glm::mat4& localToWorld){
-        tinyobj::attrib_t attrib;
-        std::vector<tinyobj::shape_t> shapes;
-        std::vector<tinyobj::material_t> materials;
-        std::string warn, err;
+    static void AccumulateNodes(aiNode* node, const aiScene* scene, const glm::mat4& parentTransform, std::vector<std::pair<aiMesh*, glm::mat4>>& outMeshes, std::vector<std::string>& outNames) {
+        glm::mat4 nodeTransform(
+            node->mTransformation.a1, node->mTransformation.b1, node->mTransformation.c1, node->mTransformation.d1,
+            node->mTransformation.a2, node->mTransformation.b2, node->mTransformation.c2, node->mTransformation.d2,
+            node->mTransformation.a3, node->mTransformation.b3, node->mTransformation.c3, node->mTransformation.d3,
+            node->mTransformation.a4, node->mTransformation.b4, node->mTransformation.c4, node->mTransformation.d4
+        );
+        glm::mat4 globalTransform = parentTransform * nodeTransform;
 
-        // Use the OBJ's directory as the base for MTL resolution.
-        std::string baseDir;
-        {
-            auto slash = objPath.find_last_of("/\\");
-            baseDir = (slash == std::string::npos) ? std::string() : objPath.substr(0, slash + 1);
+        for (unsigned int i = 0; i < node->mNumMeshes; i++) {
+            outMeshes.push_back({scene->mMeshes[node->mMeshes[i]], globalTransform});
+            outNames.push_back(node->mName.C_Str());
         }
 
-        bool ok = tinyobj::LoadObj(&attrib, &shapes, &materials, &warn, &err, objPath.c_str(), baseDir.c_str());
-        if(!warn.empty()) std::cout << "[TrackHeightfieldComponent] WARN: " << warn << std::endl;
-        if(!ok){
-            std::cerr << "[TrackHeightfieldComponent] Failed to load OBJ: \"" << objPath << "\" error: " << err << std::endl;
+        for (unsigned int i = 0; i < node->mNumChildren; i++) {
+            AccumulateNodes(node->mChildren[i], scene, globalTransform, outMeshes, outNames);
+        }
+    }
+
+    void TrackHeightfieldComponent::buildFromModel(const std::string& modelPath, const glm::mat4& localToWorld){
+        Assimp::Importer importer;
+        const aiScene* scene = importer.ReadFile(modelPath,
+            aiProcess_Triangulate |
+            aiProcess_CalcTangentSpace |
+            aiProcess_GenSmoothNormals |
+            aiProcess_JoinIdenticalVertices |
+            aiProcess_OptimizeMeshes |
+            aiProcess_ImproveCacheLocality |
+            aiProcess_LimitBoneWeights |
+            aiProcess_PopulateArmatureData |
+            aiProcess_GlobalScale |
+            aiProcess_GenUVCoords |
+            aiProcess_TransformUVCoords |
+            aiProcess_SortByPType);
+
+        if (!scene || scene->mFlags & AI_SCENE_FLAGS_INCOMPLETE || !scene->mRootNode) {
+            std::cerr << "[TrackHeightfieldComponent] Failed to load model: \"" << modelPath << "\" error: " << importer.GetErrorString() << std::endl;
             return;
         }
 
-        const size_t vertexCount = attrib.vertices.size() / 3;
-        std::vector<glm::vec3> positions;
-        positions.resize(vertexCount);
+        std::vector<std::pair<aiMesh*, glm::mat4>> instances;
+        std::vector<std::string> instanceNames;
+        AccumulateNodes(scene->mRootNode, scene, localToWorld, instances, instanceNames);
 
         glm::vec3 mn(std::numeric_limits<float>::infinity());
         glm::vec3 mx(-std::numeric_limits<float>::infinity());
 
-        for(size_t i = 0; i < vertexCount; i++){
-            glm::vec3 p(
-                attrib.vertices[3 * i + 0],
-                attrib.vertices[3 * i + 1],
-                attrib.vertices[3 * i + 2]
-            );
-            glm::vec3 wp = glm::vec3(localToWorld * glm::vec4(p, 1.0f));
-            positions[i] = wp;
-            mn = glm::min(mn, wp);
-            mx = glm::max(mx, wp);
+        for (const auto& inst : instances) {
+            aiMesh* mesh = inst.first;
+            const glm::mat4& xform = inst.second;
+            for (unsigned int i = 0; i < mesh->mNumVertices; i++) {
+                glm::vec4 p(mesh->mVertices[i].x, mesh->mVertices[i].y, mesh->mVertices[i].z, 1.0f);
+                glm::vec3 wp = glm::vec3(xform * p);
+                mn = glm::min(mn, wp);
+                mx = glm::max(mx, wp);
+            }
         }
 
         minX = mn.x;
@@ -332,9 +354,6 @@ namespace our {
 
             const float area2 = std::abs((b2.x - a2.x) * (c2.y - a2.y) - (b2.y - a2.y) * (c2.x - a2.x));
 
-            // Degenerate projected triangles are common for vertical walls.
-            // Rasterize as a thin line along the longest projected edge.
-            // This avoids very wide false wall regions from bbox filling.
             if(area2 < 1e-6f){
                 const glm::vec2 p[3] = {a2, b2, c2};
 
@@ -349,7 +368,6 @@ namespace our {
                 const glm::vec2 s1 = p[i1];
                 const glm::vec2 seg = s1 - s0;
 
-                // Keep walls approximately one cell thick in the degenerate case.
                 const float lineRadius = std::max(0.5f * cellSize, 1e-4f);
                 const float lineRadius2 = lineRadius * lineRadius;
 
@@ -407,48 +425,58 @@ namespace our {
             }
         };
 
-        // Rasterize triangles into road/grass heights and wall occupancy.
-        for(const auto& shape : shapes){
-            size_t indexOffset = 0;
-            for(size_t face = 0; face < shape.mesh.num_face_vertices.size(); face++){
-                const int fv = shape.mesh.num_face_vertices[face];
-                if(fv < 3){
-                    indexOffset += fv;
-                    continue;
+        for(size_t i = 0; i < instances.size(); i++){
+            aiMesh* mesh = instances[i].first;
+            const glm::mat4& xform = instances[i].second;
+            std::string shapeName = instanceNames[i];
+
+            std::string materialName;
+            std::string textureName;
+            glm::vec3 materialDiffuse(1.0f);
+
+            if (mesh->mMaterialIndex >= 0 && mesh->mMaterialIndex < scene->mNumMaterials) {
+                aiMaterial* mat = scene->mMaterials[mesh->mMaterialIndex];
+                aiString name;
+                mat->Get(AI_MATKEY_NAME, name);
+                materialName = name.C_Str();
+
+                aiColor3D diffuseColor(1.f, 1.f, 1.f);
+                mat->Get(AI_MATKEY_COLOR_DIFFUSE, diffuseColor);
+                materialDiffuse = glm::vec3(diffuseColor.r, diffuseColor.g, diffuseColor.b);
+
+                aiString texPath;
+                if (mat->GetTexture(aiTextureType_DIFFUSE, 0, &texPath) == AI_SUCCESS) {
+                    textureName = texPath.C_Str();
+                } else if (mat->GetTexture(aiTextureType_BASE_COLOR, 0, &texPath) == AI_SUCCESS) {
+                    textureName = texPath.C_Str();
                 }
+            }
 
-                const int materialID = (face < shape.mesh.material_ids.size()) ? shape.mesh.material_ids[face] : -1;
-                std::string materialName;
-                std::string textureName;
-                glm::vec3 materialDiffuse(1.0f);
+            const FaceSurface hintSurface = classifyByNameHints(
+                shapeName,
+                materialName,
+                textureName,
+                roadTextureHints,
+                grassTextureHints,
+                wallTextureHints
+            );
 
-                if(materialID >= 0 && materialID < (int)materials.size()){
-                    const auto& mat = materials[(size_t)materialID];
-                    materialName = mat.name;
-                    textureName = mat.diffuse_texname;
-                    materialDiffuse = glm::vec3(mat.diffuse[0], mat.diffuse[1], mat.diffuse[2]);
-                }
+            for(unsigned int f = 0; f < mesh->mNumFaces; f++){
+                aiFace face = mesh->mFaces[f];
+                if (face.mNumIndices < 3) continue;
 
-                const FaceSurface hintSurface = classifyByNameHints(
-                    shape.name,
-                    materialName,
-                    textureName,
-                    roadTextureHints,
-                    grassTextureHints,
-                    wallTextureHints
-                );
+                for(unsigned int k = 1; k + 1 < face.mNumIndices; k++){
+                    unsigned int i0 = face.mIndices[0];
+                    unsigned int i1 = face.mIndices[k];
+                    unsigned int i2 = face.mIndices[k + 1];
 
-                // We only handle triangles. If not triangulated, we just fan-triangulate.
-                const tinyobj::index_t i0 = shape.mesh.indices[indexOffset + 0];
-                for(int k = 1; k + 1 < fv; k++){
-                    const tinyobj::index_t i1 = shape.mesh.indices[indexOffset + k];
-                    const tinyobj::index_t i2 = shape.mesh.indices[indexOffset + k + 1];
+                    glm::vec4 p0(mesh->mVertices[i0].x, mesh->mVertices[i0].y, mesh->mVertices[i0].z, 1.0f);
+                    glm::vec4 p1(mesh->mVertices[i1].x, mesh->mVertices[i1].y, mesh->mVertices[i1].z, 1.0f);
+                    glm::vec4 p2(mesh->mVertices[i2].x, mesh->mVertices[i2].y, mesh->mVertices[i2].z, 1.0f);
 
-                    if(i0.vertex_index < 0 || i1.vertex_index < 0 || i2.vertex_index < 0) continue;
-
-                    const glm::vec3 a = positions[(size_t)i0.vertex_index];
-                    const glm::vec3 b = positions[(size_t)i1.vertex_index];
-                    const glm::vec3 c = positions[(size_t)i2.vertex_index];
+                    glm::vec3 a = glm::vec3(xform * p0);
+                    glm::vec3 b = glm::vec3(xform * p1);
+                    glm::vec3 c = glm::vec3(xform * p2);
 
                     if(hintSurface == FaceSurface::Wall){
                         markWallTriangle(a, b, c);
@@ -460,8 +488,6 @@ namespace our {
                     if(nlen < 1e-8f) continue;
                     n /= nlen;
 
-                    // Optional geometry-driven hard wall detection for meshes that don't have wall-like names.
-                    // Only consider near-vertical triangles when this feature is enabled.
                     if(hardWallNormalY > 0.0f && hintSurface == FaceSurface::Unknown && std::abs(n.y) <= hardWallNormalY){
                         markWallTriangle(a, b, c);
                         continue;
@@ -523,8 +549,6 @@ namespace our {
                         }
                     }
                 }
-
-                indexOffset += fv;
             }
         }
 
@@ -608,11 +632,14 @@ namespace our {
             wallTextureHints = data["wallTextureHints"].get<std::vector<std::string>>();
         }
 
-        std::string objPath = data.value("obj", "");
-        if(objPath.empty()){
+        std::string modelPath = data.value("model", "");
+        if(modelPath.empty()){
+            modelPath = data.value("obj", "");
+        }
+        if(modelPath.empty()){
             const std::string meshAssetName = data.value("mesh", "");
             if(meshAssetName.empty()){
-                std::cerr << "[TrackHeightfieldComponent] Missing 'obj' path (or 'mesh' asset name)" << std::endl;
+                std::cerr << "[TrackHeightfieldComponent] Missing 'model' or 'obj' path (or 'mesh' asset name)" << std::endl;
                 return;
             }
             const std::string* resolved = getMeshAssetPath(meshAssetName);
@@ -620,14 +647,14 @@ namespace our {
                 std::cerr << "[TrackHeightfieldComponent] Unknown mesh asset (no source path): \"" << meshAssetName << "\"" << std::endl;
                 return;
             }
-            objPath = *resolved;
+            modelPath = *resolved;
         }
 
         auto* owner = getOwner();
         if(owner == nullptr) return;
 
         const glm::mat4 localToWorld = owner->getLocalToWorldMatrix();
-        buildFromOBJ(objPath, localToWorld);
+        buildFromModel(modelPath, localToWorld);
     }
 
     bool TrackHeightfieldComponent::containsXZ(float x, float z) const {

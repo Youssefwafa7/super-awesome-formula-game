@@ -46,6 +46,8 @@ class Playstate: public our::State {
         int wallSegmentsDrawn = 0;
     };
 
+    bool freeRoaming = false;
+
     static our::Entity* findEntityByName(our::World& world, const std::string& name){
         for(auto* e : world.getEntities()){
             if(e && e->name == name) return e;
@@ -323,15 +325,31 @@ class Playstate: public our::State {
     void onDraw(double deltaTime) override {
         // Here, we just run a bunch of systems to control the world logic
         movementSystem.update(&world, (float)deltaTime);
-        carControllerSystem.update(&world, (float)deltaTime);
+        
+        auto& keyboard = getApp()->getKeyboard();
+        if(keyboard.justPressed(GLFW_KEY_F)){
+            freeRoaming = !freeRoaming;
+            auto* camera = findEntityByName(world, "main_camera");
+            if(camera){
+                if(freeRoaming){
+                    auto* fcc = camera->addComponent<our::FreeCameraControllerComponent>();
+                    fcc->positionSensitivity = {15.0f, 15.0f, 15.0f};
+                    fcc->speedupFactor = 4.0f;
+                } else {
+                    camera->deleteComponent<our::FreeCameraControllerComponent>();
+                }
+            }
+        }
+
+        if(!freeRoaming){
+            carControllerSystem.update(&world, (float)deltaTime);
+            chaseCameraSystem.update(&world, (float)deltaTime);
+        }
+        
         wheelSpinSystem.update(&world, (float)deltaTime);
         cameraController.update(&world, (float)deltaTime);
-        chaseCameraSystem.update(&world, (float)deltaTime);
         // And finally we use the renderer system to draw the scene
         renderer.render(&world);
-
-        // Get a reference to the keyboard object
-        auto& keyboard = getApp()->getKeyboard();
 
         if(keyboard.justPressed(GLFW_KEY_ESCAPE)){
             // If the escape  key is pressed in this frame, go to the play state
@@ -353,15 +371,16 @@ class Playstate: public our::State {
         flags |= ImGuiWindowFlags_NoNav;
 
         if(ImGui::Begin("Coordinates", nullptr, flags)){
-            auto* player = findEntityByName(world, "player");
-            if(player){
-                const glm::mat4 M = player->getLocalToWorldMatrix();
+            our::Entity* target = freeRoaming ? findEntityByName(world, "main_camera") : findEntityByName(world, "player");
+            if(target){
+                const glm::mat4 M = target->getLocalToWorldMatrix();
                 const glm::vec3 p = glm::vec3(M * glm::vec4(0, 0, 0, 1));
-                const float yawDeg = glm::degrees(player->localTransform.rotation.y);
+                const float yawDeg = glm::degrees(target->localTransform.rotation.y);
+                if(freeRoaming) ImGui::TextColored(ImVec4(1.0f, 1.0f, 0.2f, 1.0f), "[FREE ROAM]");
                 ImGui::Text("pos  x %.2f  y %.2f  z %.2f", p.x, p.y, p.z);
                 ImGui::Text("yaw  %.1f deg", yawDeg);
             } else {
-                ImGui::TextUnformatted("player not found");
+                ImGui::TextUnformatted("target not found");
             }
 
             ImGui::Dummy(ImVec2(0.0f, 4.0f));

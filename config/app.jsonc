@@ -45,7 +45,9 @@
         "boom_karts_kart": "assets/models/boom_karts_kart/boom_karts_kart.obj"
       },
       "samplers": {
-        "default": {},
+        "default": {
+          "MAX_ANISOTROPY": 16.0
+        },
         "pixelated": {
           "MAG_FILTER": "GL_NEAREST"
         }
@@ -216,7 +218,7 @@
             "components": [
               {
                 "type": "Track Heightfield",
-                "obj": "assets/models/race_trackkarting_track_based_on_south_garda/race_trackkarting_track_based_on_south_garda.obj",
+                "model": "assets/models/race_trackkarting_track_based_on_south_garda/scene.gltf",
                 "cellSize": 0.2,
                 "minNormalY": 0.6,
                 "hardWallNormalY": 0.12,
@@ -247,12 +249,14 @@
                   "guardrail",
                   "rail",
                   "tire",
-                  "tyre"
+                  "tyre",
+                  "collider"
                 ]
               },
               {
                 "type": "Multi Mesh Renderer",
-                "obj": "assets/models/race_trackkarting_track_based_on_south_garda/race_trackkarting_track_based_on_south_garda.obj",
+                "mergeByMaterial": true,
+                "model": "assets/models/race_trackkarting_track_based_on_south_garda/scene.gltf",
                 "shader": "lit",
                 "sampler": "default",
                 "debugPrintParts": false,
@@ -270,8 +274,8 @@
           "label": "Mini Silverstone",
           "spawn": {
             // Spawn on the start/finish area (world coordinates).
-            "position": [28.53, 18, -13],
-            "rotation": [0, 0, 0]
+            "position": [100.10, -0.42, 1.29],
+            "rotation": [0, 70.8, 0]
           },
           "entity": {
             "name": "track",
@@ -281,7 +285,7 @@
             "components": [
               {
                 "type": "Track Heightfield",
-                "obj": "assets/models/silverstone-cartoon/Cartoon_Race_Track_Silverstone.obj",
+                "model": "assets/models/silverstone-gltf-test/silverstone_light.gltf",
                 "cellSize": 0.6,
                 "minNormalY": 0.6,
                 "hardWallNormalY": 0.0,
@@ -312,15 +316,18 @@
                   "guardrail",
                   "rail",
                   "tire",
-                  "tyre"
+                  "tyre",
+                  "collider"
                 ]
               },
               {
                 "type": "Multi Mesh Renderer",
-                "obj": "assets/models/silverstone-cartoon/Cartoon_Race_Track_Silverstone.obj",
+                "mergeByMaterial": true,
+                "model": "assets/models/silverstone-gltf-test/silverstone_light.gltf",
                 "shader": "lit",
                 "sampler": "default",
                 "debugPrintParts": false,
+                "excludeMaterials": ["collider"],
                 "pipelineState": {
                   "faceCulling": { "enabled": false },
                   "depthTesting": { "enabled": true }

@@ -78,7 +78,7 @@ namespace our {
             for(auto& [name, desc] : data.items()){
                 std::string path = desc.get<std::string>();
                 g_meshAssetPaths[name] = path;
-                assets[name] = mesh_utils::loadOBJ(path);
+                assets[name] = mesh_utils::loadModel(path);
             }
         }
     };

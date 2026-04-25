@@ -118,8 +118,8 @@ void our::Application::configureOpenGL() {
     //Make window size fixed (User can't resize it)
     glfwWindowHint(GLFW_RESIZABLE, GLFW_FALSE);
 
-    //Set Number of sample used in MSAA (0 = Disabled)
-    glfwWindowHint(GLFW_SAMPLES, 0);
+    //Set Number of sample used in MSAA (4 = 4x MSAA)
+    glfwWindowHint(GLFW_SAMPLES, 4);
 
     //Enable Double Buffering
     glfwWindowHint(GLFW_DOUBLEBUFFER, GLFW_TRUE);
@@ -183,6 +183,9 @@ int our::Application::run(int run_for_frames) {
     glfwMakeContextCurrent(window);         // Tell GLFW to make the context of our window the main context on the current thread.
 
     gladLoadGL(glfwGetProcAddress);         // Load the OpenGL functions from the driver
+    
+    // Enable Multisamping (MSAA)
+    glEnable(GL_MULTISAMPLE);
 
     // Print information about the OpenGL context
     std::cout << "VENDOR          : " << glGetString(GL_VENDOR) << std::endl;

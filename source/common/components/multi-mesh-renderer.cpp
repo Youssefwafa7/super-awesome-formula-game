@@ -12,8 +12,11 @@
 
 namespace our {
 
-    static bool containsString(const std::vector<std::string>& list, const std::string& value){
-        return std::find(list.begin(), list.end(), value) != list.end();
+    static bool containsSubstring(const std::vector<std::string>& list, const std::string& value){
+        for (const auto& item : list) {
+            if (value.find(item) != std::string::npos) return true;
+        }
+        return false;
     }
 
     Texture2D* MultiMeshRendererComponent::getFallbackWhiteTexture(){
@@ -49,11 +52,14 @@ namespace our {
     void MultiMeshRendererComponent::deserialize(const nlohmann::json& data){
         if(!data.is_object()) return;
 
-        std::string objPath = data.value("obj", "");
-        if(objPath.empty()){
+        std::string modelPath = data.value("model", "");
+        if(modelPath.empty()){
+            modelPath = data.value("obj", "");
+        }
+        if(modelPath.empty()){
             const std::string meshAssetName = data.value("mesh", "");
             if(meshAssetName.empty()){
-                std::cerr << "[MultiMeshRendererComponent] Missing 'obj' path (or 'mesh' asset name)" << std::endl;
+                std::cerr << "[MultiMeshRendererComponent] Missing 'model' or 'obj' path (or 'mesh' asset name)" << std::endl;
                 return;
             }
 
@@ -63,16 +69,17 @@ namespace our {
                 return;
             }
 
-            objPath = *resolved;
+            modelPath = *resolved;
         }
 
-        sourceObjPath = objPath;
+        sourceObjPath = modelPath;
 
         excludeObjects.clear();
         excludeMaterials.clear();
         debugPrintParts = data.value("debugPrintParts", false);
 
         const bool recenterToOrigin = data.value("recenterToOrigin", false);
+        mergeByMaterial = data.value("mergeByMaterial", false);
 
         if(data.contains("excludeObjects") && data["excludeObjects"].is_array()){
             excludeObjects = data["excludeObjects"].get<std::vector<std::string>>();
@@ -106,19 +113,19 @@ namespace our {
         }
 
         // Build sub-meshes split by material.
-        auto submeshes = mesh_utils::loadOBJWithMaterials(objPath);
+        auto submeshes = mesh_utils::loadModelWithMaterials(modelPath, mergeByMaterial);
         if(submeshes.empty()){
-            std::cerr << "[MultiMeshRendererComponent] No submeshes loaded from: " << objPath << std::endl;
+            std::cerr << "[MultiMeshRendererComponent] No submeshes loaded from: " << modelPath << std::endl;
             return;
         }
 
         if(debugPrintParts){
             const std::string entityName = (getOwner() ? getOwner()->name : std::string("<null>"));
-            std::cerr << "[MultiMeshRendererComponent] Submeshes for entity \"" << entityName << "\" from: " << objPath << std::endl;
+            std::cerr << "[MultiMeshRendererComponent] Submeshes for entity \"" << entityName << "\" from: " << modelPath << std::endl;
             for(size_t i = 0; i < submeshes.size(); i++){
                 const auto& s = submeshes[i];
-                const bool excludedByObject = (!excludeObjects.empty() && containsString(excludeObjects, s.objectName));
-                const bool excludedByMaterial = (!excludeMaterials.empty() && containsString(excludeMaterials, s.materialName));
+                const bool excludedByObject = (!excludeObjects.empty() && containsSubstring(excludeObjects, s.objectName));
+                const bool excludedByMaterial = (!excludeMaterials.empty() && containsSubstring(excludeMaterials, s.materialName));
                 std::cerr << "  [" << i << "] object=\"" << s.objectName << "\" material=\"" << s.materialName
                           << "\" tex=\"" << s.diffuseTexturePath << "\" pivot=(" << s.pivot.x << "," << s.pivot.y << "," << s.pivot.z << ")"
                           << " size=(" << s.aabbSize.x << "," << s.aabbSize.y << "," << s.aabbSize.z << ")"
@@ -133,8 +140,8 @@ namespace our {
         for(auto& sub : submeshes){
             if(sub.mesh == nullptr) continue;
 
-            const bool excludedByObject = (!excludeObjects.empty() && containsString(excludeObjects, sub.objectName));
-            const bool excludedByMaterial = (!excludeMaterials.empty() && containsString(excludeMaterials, sub.materialName));
+            const bool excludedByObject = (!excludeObjects.empty() && containsSubstring(excludeObjects, sub.objectName));
+            const bool excludedByMaterial = (!excludeMaterials.empty() && containsSubstring(excludeMaterials, sub.materialName));
             if(excludedByObject || excludedByMaterial){
                 delete sub.mesh;
                 continue;
@@ -153,7 +160,23 @@ namespace our {
                 // - JSON/global tint acts as an extra multiplier
                 lit->tint = globalTint;
                 lit->albedoColor = sub.diffuseColor;
-                lit->albedoMap = getOrLoadTexture(sub.diffuseTexturePath);
+                
+                auto assignTexture = [&](Texture2D*& outMap, Texture2D* loadedTex, const std::string& path) {
+                    if (loadedTex) {
+                        outMap = loadedTex;
+                        if (std::find(ownedTextures.begin(), ownedTextures.end(), loadedTex) == ownedTextures.end()) {
+                            ownedTextures.push_back(loadedTex);
+                        }
+                    } else if (!path.empty()) {
+                        outMap = getOrLoadTexture(path);
+                    }
+                };
+
+                assignTexture(lit->albedoMap, sub.diffuseTexture, sub.diffuseTexturePath);
+                assignTexture(lit->specularMap, sub.specularTexture, sub.specularTexturePath);
+                assignTexture(lit->roughnessMap, sub.roughnessTexture, sub.roughnessTexturePath);
+                assignTexture(lit->aoMap, sub.aoTexture, sub.aoTexturePath);
+                assignTexture(lit->emissionMap, sub.emissionTexture, sub.emissionTexturePath);
 
                 mat = lit;
             } else {
@@ -168,7 +191,15 @@ namespace our {
                 glm::vec4 diffuseTint(sub.diffuseColor, 1.0f);
                 tex->tint = diffuseTint * globalTint;
 
-                tex->texture = getOrLoadTexture(sub.diffuseTexturePath);
+                if (sub.diffuseTexture) {
+                    tex->texture = sub.diffuseTexture;
+                    if (std::find(ownedTextures.begin(), ownedTextures.end(), sub.diffuseTexture) == ownedTextures.end()) {
+                        ownedTextures.push_back(sub.diffuseTexture);
+                    }
+                } else {
+                    tex->texture = getOrLoadTexture(sub.diffuseTexturePath);
+                }
+                
                 mat = tex;
             }
 

@@ -26,7 +26,7 @@ class MeshTestState: public our::State {
         std::string meshPath = config.value("mesh", "");
         if(meshPath.size() != 0){
             // If it is not empty, we load the OBJ file
-            mesh = our::mesh_utils::loadOBJ(meshPath);
+            mesh = our::mesh_utils::loadModel(meshPath);
         } else {
             // Otherwise, we create a simple diamond object
             std::vector<our::Vertex> vertices = {

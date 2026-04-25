@@ -55,6 +55,15 @@ namespace our {
             return out;
         }
 
+        static bool containsAnySubstringCI(const std::string& haystackLower, const std::vector<std::string>& needles){
+            for(const auto& n : needles){
+                if(n.empty()) continue;
+                const std::string needleLower = toLowerCopy(n);
+                if(haystackLower.find(needleLower) != std::string::npos) return true;
+            }
+            return false;
+        }
+
         static TrackHeightfieldComponent* findTrack(World* world){
             if(world == nullptr) return nullptr;
             for(auto entity : world->getEntities()){
@@ -107,13 +116,14 @@ namespace our {
             int wallResolveIterations,
             float maxClimbHeight,
             TrackHeightfieldComponent::SurfaceType& outSurface,
-            bool& outTouchedWall
+            bool& outTouchedWall,
+            const CarControllerComponent* car = nullptr
         ) {
             outTouchedWall = false;
 
             auto tryCandidate = [&](glm::vec3 candidate) -> MoveResult {
                 bool touchedWall = false;
-                if(track != nullptr){
+                if(track != nullptr && !(car && car->noClip)){
                     glm::vec2 p(candidate.x, candidate.z);
                     touchedWall = track->resolveWallCollision(p, collisionRadius, wallPushback, wallResolveIterations);
                     candidate.x = p.x;
@@ -132,12 +142,28 @@ namespace our {
                         outSurface = TrackHeightfieldComponent::SurfaceType::Grass;
                         return MoveResult::MovedGrass;
                     }
+                    if(car && car->noClip){
+                        candidate.y = position.y;
+                        position = candidate;
+                        outTouchedWall = touchedWall;
+                        outSurface = TrackHeightfieldComponent::SurfaceType::Grass;
+                        return MoveResult::MovedGrass;
+                    }
                     outTouchedWall = touchedWall;
                     return MoveResult::BlockedUnknown;
                 }
                 if(s.surface == TrackHeightfieldComponent::SurfaceType::Wall){
-                    outTouchedWall = true;
-                    return MoveResult::BlockedWall;
+                    if(car && car->noClip){
+                        // In no-clip mode, treat walls as road/grass height-wise but don't block motion.
+                        // If the wall has no drivable surface underneath (s.y is 0 or too far), 
+                        // keep our current height to avoid snapping to the floor/void.
+                        if(std::abs(s.y + clearance - position.y) > maxClimbHeight){
+                            s.y = position.y - clearance;
+                        }
+                    } else {
+                        outTouchedWall = true;
+                        return MoveResult::BlockedWall;
+                    }
                 }
 
                 const float targetY = s.y + clearance;
@@ -171,10 +197,12 @@ namespace our {
             candidates.reserve(multi.parts.size());
 
             const std::vector<std::string> wheelHints = {"wheel", "tire", "tyre", "rim"};
+            const std::vector<std::string> wheelExclusions = {"body", "chassis", "frame", "kart", "car", "cockpit", "engine", "steering", "seat"};
 
             for(int i = 0; i < (int)multi.parts.size(); i++){
                 const auto& part = multi.parts[i];
                 const std::string fullNameLower = toLowerCopy(part.objectName + std::string(" ") + part.materialName);
+                if(containsAnySubstringCI(fullNameLower, wheelExclusions)) continue;
 
                 // Geometry heuristic: wheels are often round in two axes and thin in the third.
                 const glm::vec3 s = glm::abs(part.aabbSize);
@@ -186,12 +214,19 @@ namespace our {
 
                 const float roundness = std::clamp(midDim / maxDim, 0.0f, 1.0f);
                 const float thinness = std::clamp(minDim / midDim, 0.0f, 1.0f);
-                if(roundness < 0.45f) continue;
 
                 float nameBonus = 0.0f;
+                bool hasWheelName = false;
                 for(const auto& h : wheelHints){
-                    if(fullNameLower.find(h) != std::string::npos){ nameBonus = 1.0f; break; }
+                    if(fullNameLower.find(h) != std::string::npos){ 
+                        nameBonus = 1.0f; 
+                        hasWheelName = true;
+                        break; 
+                    }
                 }
+
+                if(!hasWheelName && roundness < 0.75f) continue;
+                if(roundness < 0.45f) continue;
 
                 float score = 0.0f;
                 score += 2.0f * roundness;
@@ -350,6 +385,7 @@ namespace our {
 
                 const float throttle = (keyboard.isPressed(GLFW_KEY_W) ? 1.0f : 0.0f) - (keyboard.isPressed(GLFW_KEY_S) ? 1.0f : 0.0f);
                 const float steer = (keyboard.isPressed(GLFW_KEY_A) ? 1.0f : 0.0f) - (keyboard.isPressed(GLFW_KEY_D) ? 1.0f : 0.0f);
+                
                 const bool onGrass = (currentSurface == TrackHeightfieldComponent::SurfaceType::Grass);
                 const float accelFactor = onGrass ? car->grassAccelFactor : 1.0f;
 
@@ -421,7 +457,8 @@ namespace our {
                         car->wallResolveIterations,
                         car->maxClimbHeight,
                         steppedSurface,
-                        touchedWall
+                        touchedWall,
+                        car
                     );
 
                     if(move == MoveResult::MovedGrass || move == MoveResult::MovedRoad){

@@ -79,7 +79,7 @@ namespace our {
         bool projectToNearestDrivable(glm::vec2& position, int maxSearchCells = 32) const;
 
     private:
-        void buildFromOBJ(const std::string& objPath, const glm::mat4& localToWorld);
+        void buildFromModel(const std::string& modelPath, const glm::mat4& localToWorld);
 
         static bool barycentric2D(
             const glm::vec2& a,

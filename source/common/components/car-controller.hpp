@@ -45,6 +45,7 @@ namespace our {
         // Runtime state
         float speed = 0.0f;
         float steeringAngle = 0.0f; // radians (visual-only)
+        bool noClip = false;
 
         // Cached part indices for front wheel steering (MultiMeshRenderer)
         bool _cachedFrontWheelParts = false;
