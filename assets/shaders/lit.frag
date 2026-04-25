@@ -96,6 +96,44 @@ float attenuatePoint(vec3 att, float d){
     return 1.0 / max(att.x + att.y * d + att.z * d * d, 0.0001);
 }
 
+const float PI = 3.14159265359;
+
+float DistributionGGX(vec3 N, vec3 H, float roughness) {
+    float a = roughness*roughness;
+    float a2 = a*a;
+    float NdotH = max(dot(N, H), 0.0);
+    float NdotH2 = NdotH*NdotH;
+
+    float nom   = a2;
+    float denom = (NdotH2 * (a2 - 1.0) + 1.0);
+    denom = PI * denom * denom;
+
+    return nom / max(denom, 0.0000001); // prevent divide by zero
+}
+
+float GeometrySchlickGGX(float NdotV, float roughness) {
+    float r = (roughness + 1.0);
+    float k = (r*r) / 8.0;
+
+    float nom   = NdotV;
+    float denom = NdotV * (1.0 - k) + k;
+
+    return nom / denom;
+}
+
+float GeometrySmith(vec3 N, vec3 V, vec3 L, float roughness) {
+    float NdotV = max(dot(N, V), 0.0);
+    float NdotL = max(dot(N, L), 0.0);
+    float ggx2 = GeometrySchlickGGX(NdotV, roughness);
+    float ggx1 = GeometrySchlickGGX(NdotL, roughness);
+
+    return ggx1 * ggx2;
+}
+
+vec3 fresnelSchlick(float cosTheta, vec3 F0) {
+    return F0 + (1.0 - F0) * pow(clamp(1.0 - cosTheta, 0.0, 1.0), 5.0);
+}
+
 void main(){
     float albedoAlpha = 1.0;
     if(hasAlbedoMap != 0){
@@ -111,18 +149,13 @@ void main(){
     float rough = getRoughness();
     float metallic = clamp(metallicValue, 0.0, 1.0);
 
-    // Simple metallic workflow approximation
     vec3 F0 = mix(specCol, albedo, metallic);
-    vec3 diffuseColor = albedo * (1.0 - metallic);
 
     float ao = getAO();
 
-    vec3 ambient = ambientColor * ambientIntensity * diffuseColor * ao;
+    vec3 ambient = ambientColor * ambientIntensity * albedo * ao;
 
-    // Roughness -> shininess mapping for Blinn-Phong
-    float shininess = mix(256.0, 2.0, rough * rough);
-
-    vec3 lighting = vec3(0.0);
+    vec3 Lo = vec3(0.0);
 
     int count = clamp(lightCount, 0, MAX_LIGHTS);
     for(int i = 0; i < count; i++){
@@ -151,29 +184,31 @@ void main(){
             spotFactor = smoothstep(outerCos, innerCos, cosTheta);
         }
 
+        vec3 H = normalize(L + V);
         float NdotL = max(dot(N, L), 0.0);
         if(NdotL <= 0.0) continue;
 
-        vec3 H = normalize(L + V);
-        float specTerm;
-        if(useBlinnPhong != 0){
-            specTerm = pow(max(dot(N, H), 0.0), shininess);
-        } else {
-            vec3 R = reflect(-L, N);
-            specTerm = pow(max(dot(V, R), 0.0), shininess);
-        }
+        vec3 radiance = lightColor[i] * lightIntensity[i] * attenuation * spotFactor * PI;
 
-        vec3 lightRadiance = lightColor[i] * lightIntensity[i] * attenuation * spotFactor;
+        // Cook-Torrance BRDF
+        float NDF = DistributionGGX(N, H, rough);
+        float G   = GeometrySmith(N, V, L, rough);
+        vec3 F    = fresnelSchlick(max(dot(H, V), 0.0), F0);
 
-        vec3 diffuse = diffuseColor * NdotL;
-        vec3 specular = F0 * specTerm * NdotL;
+        vec3 numerator    = NDF * G * F;
+        float denominator = 4.0 * max(dot(N, V), 0.0) * NdotL + 0.0001; // + 0.0001 to prevent divide by zero
+        vec3 specular     = numerator / denominator;
 
-        lighting += (diffuse + specular) * lightRadiance;
+        vec3 kS = F;
+        vec3 kD = vec3(1.0) - kS;
+        kD *= 1.0 - metallic;
+
+        Lo += (kD * albedo / PI + specular) * radiance * NdotL;
     }
 
     vec3 emission = getEmission();
 
-    vec3 finalColor = ambient + lighting + emission;
+    vec3 finalColor = ambient + Lo + emission;
 
     // Simple tonemapping + gamma for display. This improves night readability and prevents blowouts.
     const float exposure = 1.15;
