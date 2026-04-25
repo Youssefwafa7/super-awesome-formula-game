@@ -16,36 +16,24 @@
 
 namespace our {
 
-    // Updates entities with CarControllerComponent using keyboard input,
-    // and constrains them to a TrackHeightfieldComponent.
-    //
-    // Controls:
-    // - W/S: forward/reverse
-    // - A/D: steering
     class CarControllerSystem {
         Application* app = nullptr;
 
-        static float resolveVerticalTarget(
-            float currentY,
-            float sampledTargetY,
-            float maxClimbHeight,
-            bool touchedWall
-        ) {
-            // Never allow wall contact to turn into upward "wall climbing".
+        static float resolveVerticalTarget(float currentY, float sampledTargetY, float maxClimbHeight, bool touchedWall){
             if(sampledTargetY > currentY && touchedWall) return currentY;
-
-            // Always allow moving down to follow terrain.
             if(sampledTargetY <= currentY) return sampledTargetY;
-
-            // Limit upward steps even when not touching walls.
             if(sampledTargetY > currentY + maxClimbHeight) return currentY;
             return sampledTargetY;
         }
 
         static glm::vec3 getForward(float yaw){
             glm::mat4 rot = glm::yawPitchRoll(yaw, 0.0f, 0.0f);
-            // Many imported car OBJs face +Z in their local space.
             return glm::vec3(rot * glm::vec4(0, 0, 1, 0));
+        }
+
+        static glm::vec3 getRight(float yaw){
+            glm::mat4 rot = glm::yawPitchRoll(yaw, 0.0f, 0.0f);
+            return glm::vec3(rot * glm::vec4(1, 0, 0, 0));
         }
 
         static std::string toLowerCopy(const std::string& s){
@@ -78,20 +66,13 @@ namespace our {
             TrackHeightfieldComponent::SurfaceType surface = TrackHeightfieldComponent::SurfaceType::Road;
         };
 
-        enum class MoveResult {
-            MovedRoad,
-            MovedGrass,
-            BlockedWall,
-            BlockedUnknown
-        };
+        enum class MoveResult { MovedRoad, MovedGrass, BlockedWall, BlockedUnknown };
 
         static bool sampleTrack(const TrackHeightfieldComponent* track, float x, float z, TrackSample& out){
             if(track == nullptr) return false;
-
             TrackHeightfieldComponent::SurfaceType surface;
             float y = 0.0f;
             if(!track->sampleSurface(x, z, y, surface)) return false;
-
             out.valid = true;
             out.y = y;
             out.surface = surface;
@@ -117,23 +98,29 @@ namespace our {
             float maxClimbHeight,
             TrackHeightfieldComponent::SurfaceType& outSurface,
             bool& outTouchedWall,
+            glm::vec2& outWallNormal,
             const CarControllerComponent* car = nullptr
         ) {
             outTouchedWall = false;
+            outWallNormal = glm::vec2(0.0f);
 
             auto tryCandidate = [&](glm::vec3 candidate) -> MoveResult {
                 bool touchedWall = false;
+                glm::vec2 preResolve(candidate.x, candidate.z);
                 if(track != nullptr && !(car && car->noClip)){
                     glm::vec2 p(candidate.x, candidate.z);
                     touchedWall = track->resolveWallCollision(p, collisionRadius, wallPushback, wallResolveIterations);
+                    if(touchedWall){
+                        glm::vec2 pushDir = p - preResolve;
+                        float pushLen = glm::length(pushDir);
+                        if(pushLen > 1e-6f) outWallNormal = pushDir / pushLen;
+                    }
                     candidate.x = p.x;
                     candidate.z = p.y;
                 }
 
                 TrackSample s;
                 if(!sampleTrack(track, candidate.x, candidate.z, s)){
-                    // If still inside the track bounds but no classified cell exists,
-                    // treat this as soft grass (keep current vertical position).
                     if(track != nullptr && track->containsXZ(candidate.x, candidate.z)){
                         candidate.y = position.y;
                         position.x = candidate.x;
@@ -154,9 +141,6 @@ namespace our {
                 }
                 if(s.surface == TrackHeightfieldComponent::SurfaceType::Wall){
                     if(car && car->noClip){
-                        // In no-clip mode, treat walls as road/grass height-wise but don't block motion.
-                        // If the wall has no drivable surface underneath (s.y is 0 or too far), 
-                        // keep our current height to avoid snapping to the floor/void.
                         if(std::abs(s.y + clearance - position.y) > maxClimbHeight){
                             s.y = position.y - clearance;
                         }
@@ -172,14 +156,12 @@ namespace our {
                 outTouchedWall = touchedWall;
                 outSurface = s.surface;
                 return (s.surface == TrackHeightfieldComponent::SurfaceType::Grass)
-                    ? MoveResult::MovedGrass
-                    : MoveResult::MovedRoad;
+                    ? MoveResult::MovedGrass : MoveResult::MovedRoad;
             };
 
             MoveResult result = tryCandidate(position + delta);
             if(result == MoveResult::MovedRoad || result == MoveResult::MovedGrass) return result;
 
-            // Slide: try X-only then Z-only.
             result = tryCandidate(position + glm::vec3(delta.x, 0.0f, 0.0f));
             if(result == MoveResult::MovedRoad || result == MoveResult::MovedGrass) return result;
 
@@ -204,7 +186,6 @@ namespace our {
                 const std::string fullNameLower = toLowerCopy(part.objectName + std::string(" ") + part.materialName);
                 if(containsAnySubstringCI(fullNameLower, wheelExclusions)) continue;
 
-                // Geometry heuristic: wheels are often round in two axes and thin in the third.
                 const glm::vec3 s = glm::abs(part.aabbSize);
                 const float a = s.x, b = s.y, c = s.z;
                 const float maxDim = std::max(a, std::max(b, c));
@@ -218,10 +199,10 @@ namespace our {
                 float nameBonus = 0.0f;
                 bool hasWheelName = false;
                 for(const auto& h : wheelHints){
-                    if(fullNameLower.find(h) != std::string::npos){ 
-                        nameBonus = 1.0f; 
+                    if(fullNameLower.find(h) != std::string::npos){
+                        nameBonus = 1.0f;
                         hasWheelName = true;
-                        break; 
+                        break;
                     }
                 }
 
@@ -232,7 +213,6 @@ namespace our {
                 score += 2.0f * roundness;
                 score += 1.0f * (1.0f - thinness);
                 score += nameBonus;
-                // Prefer parts near ground.
                 score += -0.1f * part.localTransform.position.y;
 
                 candidates.push_back({i, score, part.localTransform.position});
@@ -243,11 +223,9 @@ namespace our {
                 return;
             }
 
-            // Pick up to 4 best wheel candidates.
             std::sort(candidates.begin(), candidates.end(), [](const Candidate& a, const Candidate& b){ return a.score > b.score; });
             if(candidates.size() > 8) candidates.resize(8);
 
-            // Compute center, then pick farthest points.
             glm::vec3 center(0.0f);
             for(const auto& c : candidates) center += c.p;
             center /= (float)candidates.size();
@@ -272,7 +250,6 @@ namespace our {
                 return;
             }
 
-            // Front wheels: those with highest local Z (assuming car forward is +Z).
             std::vector<std::pair<float,int>> byZ;
             byZ.reserve(picked.size());
             for(int idx : picked){
@@ -298,8 +275,8 @@ namespace our {
         void update(World* world, float deltaTime){
             if(app == nullptr) return;
 
+            const float dt = std::clamp(deltaTime, 0.0f, 0.05f); // Cap at 50ms for stability
             auto* track = findTrack(world);
-
             auto& keyboard = app->getKeyboard();
 
             for(auto entity : world->getEntities()){
@@ -307,51 +284,31 @@ namespace our {
                 if(car == nullptr) continue;
 
                 auto& transform = entity->localTransform;
-
                 TrackHeightfieldComponent::SurfaceType currentSurface = TrackHeightfieldComponent::SurfaceType::Road;
 
-                // Keep the car vertically attached to the sampled surface at start of frame.
+                // ── 1. Terrain snap at start of frame (existing logic, unchanged) ──
                 TrackSample startSample;
                 if(sampleTrack(track, transform.position.x, transform.position.z, startSample) &&
                    startSample.surface != TrackHeightfieldComponent::SurfaceType::Wall) {
                     const float targetY = startSample.y + car->groundClearance;
-                    transform.position.y = resolveVerticalTarget(
-                        transform.position.y,
-                        targetY,
-                        car->maxClimbHeight,
-                        false
-                    );
+                    transform.position.y = resolveVerticalTarget(transform.position.y, targetY, car->maxClimbHeight, false);
                     currentSurface = startSample.surface;
                 } else if(track != nullptr) {
                     bool recovered = false;
-
-                    // First, try a local depenetration from wall segments only.
-                    // This avoids large snap corrections when skimming walls or grass edges.
                     glm::vec2 nudged(transform.position.x, transform.position.z);
                     const bool touchedWallOnRecover = track->resolveWallCollision(
-                        nudged,
-                        std::max(0.05f, car->collisionRadius),
-                        0.0f,
-                        std::max(1, car->wallResolveIterations)
-                    );
+                        nudged, std::max(0.05f, car->collisionRadius), 0.0f, std::max(1, car->wallResolveIterations));
                     if(touchedWallOnRecover){
                         transform.position.x = nudged.x;
                         transform.position.z = nudged.y;
                         if(sampleTrack(track, transform.position.x, transform.position.z, startSample) &&
                            startSample.surface != TrackHeightfieldComponent::SurfaceType::Wall){
-                            const float targetY = startSample.y + car->groundClearance;
                             transform.position.y = resolveVerticalTarget(
-                                transform.position.y,
-                                targetY,
-                                car->maxClimbHeight,
-                                true
-                            );
+                                transform.position.y, startSample.y + car->groundClearance, car->maxClimbHeight, true);
                             currentSurface = startSample.surface;
                             recovered = true;
                         }
                     }
-
-                    // If outside bounds, allow projection but keep it local to prevent teleporting.
                     if(!recovered && !track->containsXZ(transform.position.x, transform.position.z)){
                         const glm::vec2 oldXZ(transform.position.x, transform.position.z);
                         glm::vec2 projected = oldXZ;
@@ -363,128 +320,252 @@ namespace our {
                                 transform.position.z = projected.y;
                                 if(sampleTrack(track, transform.position.x, transform.position.z, startSample) &&
                                    startSample.surface != TrackHeightfieldComponent::SurfaceType::Wall){
-                                    const float targetY = startSample.y + car->groundClearance;
                                     transform.position.y = resolveVerticalTarget(
-                                        transform.position.y,
-                                        targetY,
-                                        car->maxClimbHeight,
-                                        false
-                                    );
+                                        transform.position.y, startSample.y + car->groundClearance, car->maxClimbHeight, false);
                                     currentSurface = startSample.surface;
                                     recovered = true;
                                 }
                             }
                         }
                     }
-
-                    // If still unresolved but still within track bounds, keep motion continuous.
                     if(!recovered && track->containsXZ(transform.position.x, transform.position.z)){
                         currentSurface = TrackHeightfieldComponent::SurfaceType::Grass;
                     }
                 }
 
-                const float throttle = (keyboard.isPressed(GLFW_KEY_W) ? 1.0f : 0.0f) - (keyboard.isPressed(GLFW_KEY_S) ? 1.0f : 0.0f);
-                const float steer = (keyboard.isPressed(GLFW_KEY_A) ? 1.0f : 0.0f) - (keyboard.isPressed(GLFW_KEY_D) ? 1.0f : 0.0f);
-                
+                // ── 2. Read input ──
+                const bool  pressingForward = keyboard.isPressed(GLFW_KEY_W);
+                const bool  pressingReverse = keyboard.isPressed(GLFW_KEY_S);
+                const bool  pressingBrake   = keyboard.isPressed(GLFW_KEY_SPACE);
+                const float steerInput      = (keyboard.isPressed(GLFW_KEY_A) ? 1.0f : 0.0f) - (keyboard.isPressed(GLFW_KEY_D) ? 1.0f : 0.0f);
+
+                // ── 3. Surface multipliers ──
                 const bool onGrass = (currentSurface == TrackHeightfieldComponent::SurfaceType::Grass);
-                const float accelFactor = onGrass ? car->grassAccelFactor : 1.0f;
+                const float surfaceEngine  = onGrass ? car->grassEngineScale  : 1.0f;
+                const float surfaceLateral = onGrass ? car->grassLateralScale : 1.0f;
+                const float surfaceDrag    = onGrass ? car->grassDragScale    : 1.0f;
+                const float surfaceMaxSpd  = onGrass ? car->grassMaxSpeedScale : 1.0f;
+                const float effectiveMaxSpeed = car->maxSpeed * surfaceMaxSpd;
 
-                // Update speed.
-                if(throttle > 0.0f){
-                    car->speed += car->acceleration * accelFactor * deltaTime;
-                } else if(throttle < 0.0f){
-                    car->speed -= car->brakeAcceleration * accelFactor * deltaTime;
-                } else {
-                    // Damping towards 0.
-                    const float extraGrassDrag = onGrass ? (0.35f * car->grassDamping) : 0.0f;
-                    const float damping = std::max(0.0f, 1.0f - (car->linearDamping + extraGrassDrag) * deltaTime);
-                    car->speed *= damping;
+                // ── 4. Decompose velocity into local frame ──
+                const glm::vec3 fwd3 = getForward(transform.rotation.y);
+                const glm::vec3 rgt3 = getRight(transform.rotation.y);
+                const glm::vec2 fwdDir(fwd3.x, fwd3.z);
+                const glm::vec2 rgtDir(rgt3.x, rgt3.z);
+
+                float fwdVel = glm::dot(car->velocity, fwdDir);
+                float latVel = glm::dot(car->velocity, rgtDir);
+
+                // ── 5. Compute slip angle & grip ──
+                const float absFwd = std::abs(fwdVel);
+                const float slipAngle = std::atan2(std::abs(latVel), absFwd + 0.1f);
+
+                float gripFactor = 1.0f;
+                if(slipAngle > car->maxGripSlipAngle){
+                    float t = std::clamp(
+                        (slipAngle - car->maxGripSlipAngle) / (car->driftSlipAngle - car->maxGripSlipAngle),
+                        0.0f, 1.0f);
+                    gripFactor = 1.0f - t * (1.0f - car->driftGripFactor);
                 }
+                const bool isDrifting = (slipAngle > car->driftSlipAngle * 0.8f && absFwd > 2.0f);
 
-                // Clamp to base limits first to avoid runaway speed.
-                car->speed = std::clamp(car->speed, -car->maxReverseSpeed, car->maxSpeed);
+                // ── 6. Apply forces in local space ──
 
-                // On grass, bleed excess speed smoothly toward a lower effective max.
-                if(onGrass){
-                    const float grassForwardLimit = std::max(0.5f, car->maxSpeed * car->grassSpeedFactor);
-                    const float grassReverseLimit = std::max(0.35f, car->maxReverseSpeed * car->grassSpeedFactor);
-                    const float bleed = std::clamp(car->grassDamping * deltaTime, 0.0f, 1.0f);
-
-                    if(car->speed > grassForwardLimit){
-                        car->speed -= (car->speed - grassForwardLimit) * bleed;
-                    } else if(car->speed < -grassReverseLimit){
-                        car->speed += ((-grassReverseLimit) - car->speed) * bleed;
+                // Engine / brake
+                if(pressingForward){
+                    if(fwdVel < effectiveMaxSpeed){
+                        fwdVel += car->engineForce * surfaceEngine * dt;
                     }
                 }
 
-                // Turning. (Less turning when nearly stopped.)
-                const float speedFactor = std::clamp(std::abs(car->speed) / std::max(1e-3f, car->maxSpeed), 0.0f, 1.0f);
-                const float grassTurnFactor = onGrass ? car->grassTurnFactor : 1.0f;
-                // If the car is basically stationary, don't rotate in place (only steer tires visually).
-                if(std::abs(car->speed) > 0.05f){
-                    // Swap steering while reversing.
-                    const float reversing = (car->speed < -0.1f) ? -1.0f : 1.0f;
-                    transform.rotation.y += (steer * reversing) * car->turnSpeed * deltaTime * speedFactor * grassTurnFactor;
+                // Braking (Space or S while moving forward)
+                const bool isBraking = pressingBrake || (pressingReverse && fwdVel > 0.2f);
+                if(isBraking){
+                    fwdVel -= car->brakeForce * dt;
+                    // Don't let braking alone push you into reverse
+                    if(fwdVel < 0.0f && !pressingReverse) fwdVel = 0.0f;
                 }
 
-                // Integrate position in XZ using sub-steps for stable collision near walls.
-                const glm::vec3 forward = getForward(transform.rotation.y);
-                const float totalDistance = std::abs(car->speed * deltaTime);
-                const float subStepDistance = std::max(0.05f, car->collisionSubstepDistance);
-                const int subSteps = std::clamp((int)std::ceil(totalDistance / subStepDistance), 1, 12);
-                const glm::vec3 stepDelta = forward * ((car->speed * deltaTime) / (float)subSteps);
+                // Reversing (S only after stopping)
+                if(pressingReverse && fwdVel <= 0.2f){
+                    if(fwdVel > -car->maxReverseSpeed * surfaceMaxSpd){
+                        fwdVel -= car->engineForce * surfaceEngine * 0.5f * dt;
+                    }
+                }
 
-                auto applyWallBounce = [&](){
-                    const float rebound = std::clamp(car->wallBounceDamping, 0.0f, 1.0f);
-                    const float minImpactSpeed = 0.12f;
-                    if(std::abs(car->speed) > minImpactSpeed){
-                        car->speed = -car->speed * rebound;
+                // Rolling resistance (velocity-proportional drag)
+                {
+                    const float drag = car->rollingResistance * surfaceDrag * dt;
+                    if(std::abs(fwdVel) > 0.01f){
+                        float reduction = fwdVel * std::clamp(drag, 0.0f, 0.95f);
+                        fwdVel -= reduction;
+                    }
+                }
+
+                // Aerodynamic drag (proportional to v²)
+                {
+                    float aeroDrag = car->aeroDragCoeff * fwdVel * std::abs(fwdVel) * dt;
+                    // Don't let aero drag reverse direction
+                    if(std::abs(aeroDrag) > std::abs(fwdVel)) aeroDrag = fwdVel;
+                    fwdVel -= aeroDrag;
+                }
+
+                // Lateral friction (with grip factor from slip model)
+                {
+                    float effectiveLatFriction = car->lateralFriction * gripFactor * surfaceLateral;
+                    
+                    // INDUCE SKID: If braking while moving fast, reduce lateral grip significantly
+                    if(isBraking && absFwd > 4.0f){
+                        effectiveLatFriction *= 0.10f; 
+                    }
+
+                    float latFrictionAmount = effectiveLatFriction * dt;
+                    latFrictionAmount = std::clamp(latFrictionAmount, 0.0f, 0.98f);
+                    latVel *= (1.0f - latFrictionAmount);
+                }
+
+                // Speed clamp
+                fwdVel = std::clamp(fwdVel, -car->maxReverseSpeed * surfaceMaxSpd, effectiveMaxSpeed);
+
+                // Clamp lateral to prevent runaway
+                const float maxLateral = std::max(effectiveMaxSpeed * 0.6f, 3.0f);
+                latVel = std::clamp(latVel, -maxLateral, maxLateral);
+
+                // ── 7. Reconstruct world velocity ──
+                car->velocity = fwdDir * fwdVel + rgtDir * latVel;
+
+                // Clamp total velocity magnitude
+                {
+                    float totalSpeed = glm::length(car->velocity);
+                    const float maxTotalSpeed = std::max(effectiveMaxSpeed, car->maxReverseSpeed) * 1.2f;
+                    if(totalSpeed > maxTotalSpeed){
+                        car->velocity *= (maxTotalSpeed / totalSpeed);
+                    }
+                }
+
+                // ── 8. Steering ──
+                // Smooth steering angle toward input
+                {
+                    float targetSteer = steerInput * car->steerAngleMax;
+
+                    // Reduce steering at high speed
+                    float speedRatio = std::clamp(absFwd / std::max(1.0f, effectiveMaxSpeed), 0.0f, 1.0f);
+                    float steerScale = 1.0f - speedRatio * (1.0f - car->highSpeedSteerReduction);
+                    targetSteer *= steerScale;
+
+                    if(std::abs(steerInput) > 0.01f){
+                        float diff = targetSteer - car->currentSteerAngle;
+                        float step = car->steerSpeed * dt;
+                        if(std::abs(diff) < step) car->currentSteerAngle = targetSteer;
+                        else car->currentSteerAngle += (diff > 0.0f ? step : -step);
                     } else {
-                        car->speed = 0.0f;
+                        float step = car->steerReturnSpeed * dt;
+                        if(std::abs(car->currentSteerAngle) < step) car->currentSteerAngle = 0.0f;
+                        else car->currentSteerAngle -= (car->currentSteerAngle > 0.0f ? step : -step);
                     }
+                }
+
+                // ── 9. Yaw rate from steering (bicycle model) ──
+                {
+                    float steerFwd = fwdVel;
+                    // Reverse steering when going backward
+                    if(fwdVel < -0.1f) steerFwd = fwdVel;
+
+                    if(std::abs(steerFwd) > car->minSteerSpeed){
+                        float tanSteer = std::tan(car->currentSteerAngle);
+                        float desiredYawRate = steerFwd * tanSteer / car->wheelbase;
+                        // Smooth toward desired
+                        float blendRate = 8.0f * dt;
+                        blendRate = std::clamp(blendRate, 0.0f, 1.0f);
+                        car->yawRate += (desiredYawRate - car->yawRate) * blendRate;
+                    } else {
+                        // Nearly stopped: damp yaw to zero
+                        car->yawRate *= std::max(0.0f, 1.0f - 10.0f * dt);
+                    }
+
+                    // Drift assist: extra angular damping when drifting to prevent spinout
+                    if(isDrifting){
+                        car->yawRate *= std::max(0.0f, 1.0f - car->driftAssist * dt);
+                    }
+
+                    // Angular damping
+                    car->yawRate *= std::max(0.0f, 1.0f - car->angularDamping * dt);
+
+                    // Clamp yaw rate
+                    car->yawRate = std::clamp(car->yawRate, -car->maxYawRate, car->maxYawRate);
+
+                    // Integrate yaw
+                    transform.rotation.y += car->yawRate * dt;
+                }
+
+                // ── 10. Position integration with sub-stepped collision ──
+                const glm::vec2 frameDelta = car->velocity * dt;
+                const float totalDistance = glm::length(frameDelta);
+                const float subStepDist = std::max(0.05f, car->collisionSubstepDistance);
+                const int subSteps = std::clamp((int)std::ceil(totalDistance / subStepDist), 1, 16);
+                const glm::vec2 stepDelta2D = frameDelta / (float)subSteps;
+                const glm::vec3 stepDelta(stepDelta2D.x, 0.0f, stepDelta2D.y);
+
+                auto applyWallBounce = [&](const glm::vec2& wallNormal){
+                    float impactSpeed = glm::length(car->velocity);
+                    if(impactSpeed < car->wallBounceMinSpeed){
+                        car->velocity = glm::vec2(0.0f);
+                        car->yawRate *= 0.3f;
+                        return;
+                    }
+                    if(glm::length(wallNormal) > 0.5f){
+                        // Reflect velocity across wall normal
+                        glm::vec2 n = glm::normalize(wallNormal);
+                        float vn = glm::dot(car->velocity, n);
+                        if(vn < 0.0f){
+                            car->velocity -= 2.0f * vn * n;
+                        }
+                    } else {
+                        // No good normal: just reverse
+                        car->velocity = -car->velocity;
+                    }
+                    car->velocity *= car->wallBounceDamping;
+                    car->yawRate *= 0.5f;
                 };
 
                 for(int i = 0; i < subSteps; i++){
                     TrackHeightfieldComponent::SurfaceType steppedSurface = currentSurface;
                     bool touchedWall = false;
+                    glm::vec2 wallNormal(0.0f);
                     const MoveResult move = tryMove(
-                        track,
-                        transform.position,
-                        glm::vec3(stepDelta.x, 0.0f, stepDelta.z),
-                        car->groundClearance,
-                        car->collisionRadius,
-                        car->wallPushback,
-                        car->wallResolveIterations,
-                        car->maxClimbHeight,
-                        steppedSurface,
-                        touchedWall,
-                        car
-                    );
+                        track, transform.position, stepDelta,
+                        car->groundClearance, car->collisionRadius,
+                        car->wallPushback, car->wallResolveIterations,
+                        car->maxClimbHeight, steppedSurface, touchedWall,
+                        wallNormal, car);
 
                     if(move == MoveResult::MovedGrass || move == MoveResult::MovedRoad){
                         currentSurface = steppedSurface;
-
-                        // Most wall impacts are resolved by depenetration and still count as "moved".
-                        // Apply rebound on contact so hits feel physical instead of sticking/sliding only.
                         if(touchedWall){
-                            applyWallBounce();
+                            applyWallBounce(wallNormal);
                             break;
                         }
                         continue;
                     }
 
                     if(move == MoveResult::BlockedWall || touchedWall){
-                        applyWallBounce();
+                        applyWallBounce(wallNormal);
                     } else {
-                        car->speed *= 0.9f;
+                        car->velocity *= 0.9f;
                     }
                     break;
                 }
 
-                // Visual wheel steering angle (independent of movement).
-                car->steeringAngle = steer * glm::radians(car->wheelSteerMaxAngle);
+                // ── 11. Update backward-compatible speed (for WheelSpin & HUD) ──
+                {
+                    const glm::vec3 fwdNow = getForward(transform.rotation.y);
+                    const glm::vec2 fwdDirNow(fwdNow.x, fwdNow.z);
+                    car->speed = glm::dot(car->velocity, fwdDirNow);
+                }
 
-                // Front wheel steering animation (if MultiMeshRenderer exists).
+                // ── 12. Visual wheel steering angle ──
+                car->steeringAngle = car->currentSteerAngle;
+
                 if(auto* multi = entity->getComponent<MultiMeshRendererComponent>()){
                     cacheFrontWheelParts(*car, *multi);
                     for(size_t i = 0; i < car->_frontWheelPartIndices.size(); i++){
