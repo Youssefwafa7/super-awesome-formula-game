@@ -61,12 +61,16 @@ namespace our {
             candidates.reserve(renderer.parts.size());
 
             const std::vector<std::string> defaultHints = {"wheel", "tire", "tyre", "rim"};
+            const std::vector<std::string> defaultExclusions = {"body", "chassis", "frame", "kart", "car", "cockpit", "engine", "steering", "seat"};
 
             for(int i = 0; i < (int)renderer.parts.size(); i++){
                 const auto& part = renderer.parts[i];
 
                 const std::string fullNameLower = toLowerCopy(part.objectName + std::string(" ") + part.materialName);
                 if(!spin.excludeNameSubstrings.empty() && containsAnySubstringCI(fullNameLower, spin.excludeNameSubstrings)){
+                    continue;
+                }
+                if(containsAnySubstringCI(fullNameLower, defaultExclusions)){
                     continue;
                 }
 
@@ -81,19 +85,23 @@ namespace our {
                 const float roundness = std::clamp(midDim / maxDim, 0.0f, 1.0f);
                 const float thinness = std::clamp(minDim / midDim, 0.0f, 1.0f);
 
-                // Reject very "blocky" parts.
+                // Reject very "blocky" parts. 
+                // If it doesn't have a wheel-related name, be stricter about roundness.
+                float nameBonus = 0.0f;
+                bool hasWheelName = false;
+                if(!spin.includeNameSubstrings.empty() && containsAnySubstringCI(fullNameLower, spin.includeNameSubstrings)){
+                    nameBonus = 3.0f;
+                    hasWheelName = true;
+                } else if(containsAnySubstringCI(fullNameLower, defaultHints)){
+                    nameBonus = 1.5f;
+                    hasWheelName = true;
+                }
+
+                if(!hasWheelName && roundness < 0.75f) continue;
                 if(roundness < 0.45f) continue;
 
                 // Prefer parts near ground (lower pivot Y).
                 const float groundBonus = -0.15f * part.localTransform.position.y;
-
-                float nameBonus = 0.0f;
-                // Name matching is a bonus (not a requirement), because many OBJs use non-semantic names like "obj8".
-                if(!spin.includeNameSubstrings.empty() && containsAnySubstringCI(fullNameLower, spin.includeNameSubstrings)){
-                    nameBonus = 3.0f;
-                } else if(containsAnySubstringCI(fullNameLower, defaultHints)){
-                    nameBonus = 1.5f;
-                }
 
                 float score = 0.0f;
                 score += 2.0f * roundness;

@@ -47,6 +47,7 @@ namespace our {
         std::vector<std::string> excludeMaterials;
 
         bool debugPrintParts = false;
+        bool mergeByMaterial = false;
 
         static std::string getID() { return "Multi Mesh Renderer"; }
 

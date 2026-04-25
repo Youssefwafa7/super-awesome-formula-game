@@ -57,3 +57,24 @@ our::Texture2D* our::texture_utils::loadImage(const std::string& filename, bool 
     stbi_image_free(pixels); //Free image data after uploading to GPU
     return texture;
 }
+
+our::Texture2D* our::texture_utils::loadImageFromMemory(const unsigned char* data, int length, bool generate_mipmap) {
+    glm::ivec2 size;
+    int channels;
+    stbi_set_flip_vertically_on_load(true);
+    unsigned char* pixels = stbi_load_from_memory(data, length, &size.x, &size.y, &channels, 4);
+    if(pixels == nullptr){
+        std::cerr << "Failed to load image from memory" << std::endl;
+        return nullptr;
+    }
+    
+    our::Texture2D* texture = new our::Texture2D();
+    glBindTexture(GL_TEXTURE_2D, texture->getOpenGLName());
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, size.x, size.y, 0, GL_RGBA, GL_UNSIGNED_BYTE, pixels);
+    if(generate_mipmap){
+        glGenerateMipmap(GL_TEXTURE_2D);
+    }
+    
+    stbi_image_free(pixels);
+    return texture;
+}
