@@ -5,6 +5,7 @@
 #include "../components/car-controller.hpp"
 #include "../components/track-heightfield.hpp"
 #include "../components/multi-mesh-renderer.hpp"
+#include "../components/race-progress.hpp"
 
 #include <glm/gtx/euler_angles.hpp>
 
@@ -383,9 +384,17 @@ namespace our {
                     }
                 }
 
-                const float throttle = (keyboard.isPressed(GLFW_KEY_W) ? 1.0f : 0.0f) - (keyboard.isPressed(GLFW_KEY_S) ? 1.0f : 0.0f);
-                const float steer = (keyboard.isPressed(GLFW_KEY_A) ? 1.0f : 0.0f) - (keyboard.isPressed(GLFW_KEY_D) ? 1.0f : 0.0f);
+                float throttle = (keyboard.isPressed(GLFW_KEY_W) ? 1.0f : 0.0f) - (keyboard.isPressed(GLFW_KEY_S) ? 1.0f : 0.0f);
+                float steer = (keyboard.isPressed(GLFW_KEY_A) ? 1.0f : 0.0f) - (keyboard.isPressed(GLFW_KEY_D) ? 1.0f : 0.0f);
                 
+                // Disable input and apply heavy braking if the race is finished
+                auto* progress = entity->getComponent<RaceProgressComponent>();
+                if(progress && progress->currentLap >= progress->totalLaps){
+                    throttle = 0.0f;
+                    steer = 0.0f;
+                    // Apply heavy artificial brake to stop the car gracefully
+                    car->speed *= std::max(0.0f, 1.0f - 2.5f * deltaTime);
+                }
                 const bool onGrass = (currentSurface == TrackHeightfieldComponent::SurfaceType::Grass);
                 const float accelFactor = onGrass ? car->grassAccelFactor : 1.0f;
 

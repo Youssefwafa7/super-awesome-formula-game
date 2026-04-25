@@ -10,6 +10,8 @@
 #include <systems/car-controller.hpp>
 #include <systems/chase-camera.hpp>
 #include <systems/wheel-spin.hpp>
+#include <systems/race.hpp>
+#include <components/race-progress.hpp>
 #include <asset-loader.hpp>
 #include <components/camera.hpp>
 #include <components/car-controller.hpp>
@@ -29,6 +31,7 @@ class Playstate: public our::State {
     our::CarControllerSystem carControllerSystem;
     our::ChaseCameraSystem chaseCameraSystem;
     our::WheelSpinSystem wheelSpinSystem;
+    our::RaceSystem raceSystem;
 
     bool debugCollisionOverlayEnabled = true;
     bool debugDrawCarBox = true;
@@ -47,6 +50,15 @@ class Playstate: public our::State {
     };
 
     bool freeRoaming = false;
+
+    // Checkpoint placement mode
+    bool checkpointPlacementMode = false;
+    float placementRadius = 5.0f;
+    struct PlacedCheckpoint {
+        glm::vec3 position;
+        float radius;
+    };
+    std::vector<PlacedCheckpoint> placedCheckpoints;
 
     static our::Entity* findEntityByName(our::World& world, const std::string& name){
         for(auto* e : world.getEntities()){
@@ -347,9 +359,50 @@ class Playstate: public our::State {
         }
         
         wheelSpinSystem.update(&world, (float)deltaTime);
+        raceSystem.update(&world, (float)deltaTime);
         cameraController.update(&world, (float)deltaTime);
         // And finally we use the renderer system to draw the scene
         renderer.render(&world);
+
+        // Toggle checkpoint placement mode
+        if(keyboard.justPressed(GLFW_KEY_C)){
+            checkpointPlacementMode = !checkpointPlacementMode;
+        }
+
+        // Checkpoint placement controls (only when mode is active)
+        if(checkpointPlacementMode){
+            // P = place checkpoint at player position
+            if(keyboard.justPressed(GLFW_KEY_P)){
+                auto* player = findEntityByName(world, "player");
+                if(player){
+                    PlacedCheckpoint cp;
+                    cp.position = player->localTransform.position;
+                    cp.radius = placementRadius;
+                    placedCheckpoints.push_back(cp);
+                    std::cout << "[CP " << (placedCheckpoints.size() - 1) << "] placed at ("
+                              << cp.position.x << ", " << cp.position.y << ", " << cp.position.z
+                              << ") r=" << cp.radius << std::endl;
+                }
+            }
+            // U = undo last placed checkpoint
+            if(keyboard.justPressed(GLFW_KEY_U) && !placedCheckpoints.empty()){
+                placedCheckpoints.pop_back();
+                std::cout << "[CP] undo — " << placedCheckpoints.size() << " remaining" << std::endl;
+            }
+            // O = output all checkpoints as JSON to console
+            if(keyboard.justPressed(GLFW_KEY_O)){
+                std::cout << "\n// ---- Checkpoint entities (paste into track preset \"entities\" array) ----" << std::endl;
+                for(size_t i = 0; i < placedCheckpoints.size(); i++){
+                    const auto& cp = placedCheckpoints[i];
+                    std::cout << "{\n"
+                              << "  \"name\": \"checkpoint_" << i << "\",\n"
+                              << "  \"position\": [" << cp.position.x << ", " << cp.position.y << ", " << cp.position.z << "],\n"
+                              << "  \"components\": [{ \"type\": \"Checkpoint\", \"index\": " << i << ", \"radius\": " << cp.radius << " }]\n"
+                              << "}" << (i + 1 < placedCheckpoints.size() ? "," : "") << std::endl;
+                }
+                std::cout << "// ---- End checkpoints ----\n" << std::endl;
+            }
+        }
 
         if(keyboard.justPressed(GLFW_KEY_ESCAPE)){
             // If the escape  key is pressed in this frame, go to the play state
@@ -443,6 +496,36 @@ class Playstate: public our::State {
             ImGui::End();
         }
 
+        // Bottom-left lap counter HUD (below speedometer).
+        {
+            const ImVec2 display = ImGui::GetIO().DisplaySize;
+
+            ImGui::SetNextWindowPos(ImVec2(10.0f, std::max(10.0f, display.y - 110.0f)), ImGuiCond_Always);
+            ImGui::SetNextWindowBgAlpha(0.35f);
+
+            ImGuiWindowFlags lapFlags = 0;
+            lapFlags |= ImGuiWindowFlags_NoDecoration;
+            lapFlags |= ImGuiWindowFlags_AlwaysAutoResize;
+            lapFlags |= ImGuiWindowFlags_NoSavedSettings;
+            lapFlags |= ImGuiWindowFlags_NoFocusOnAppearing;
+            lapFlags |= ImGuiWindowFlags_NoNav;
+
+            if(ImGui::Begin("Lap", nullptr, lapFlags)){
+                auto* player = findEntityByName(world, "player");
+                if(player){
+                    auto* progress = player->getComponent<our::RaceProgressComponent>();
+                    if(progress){
+                        ImGui::Text("Lap %d / %d", progress->currentLap + 1, progress->totalLaps);
+                        ImGui::Text("Next CP: %d", progress->nextCheckpointIndex);
+                        if(progress->currentLap >= progress->totalLaps){
+                            ImGui::TextColored(ImVec4(0.2f, 1.0f, 0.2f, 1.0f), "RACE FINISHED!");
+                        }
+                    }
+                }
+            }
+            ImGui::End();
+        }
+
         // Top-right collision debug HUD.
         {
             const ImVec2 display = ImGui::GetIO().DisplaySize;
@@ -473,6 +556,72 @@ class Playstate: public our::State {
                 ImGui::Text("wall segments: %d", debugStats.wallSegmentsDrawn);
             }
             ImGui::End();
+        }
+
+        // Checkpoint placement mode HUD + visual markers.
+        if(checkpointPlacementMode){
+            // Draw markers for placed checkpoints.
+            auto* camera = findCamera(world);
+            if(camera){
+                const glm::ivec2 fbSize = getApp()->getFrameBufferSize();
+                if(fbSize.x > 0 && fbSize.y > 0){
+                    const glm::mat4 VP = camera->getProjectionMatrix(fbSize) * camera->getViewMatrix();
+                    const ImVec2 displaySize = ImGui::GetIO().DisplaySize;
+                    ImDrawList* drawList = ImGui::GetForegroundDrawList();
+
+                    for(size_t i = 0; i < placedCheckpoints.size(); i++){
+                        const auto& cp = placedCheckpoints[i];
+                        ImVec2 screenPos;
+                        if(projectWorldToScreen(cp.position, VP, displaySize, screenPos)){
+                            // Draw a filled circle marker
+                            const ImU32 color = IM_COL32(50, 255, 100, 200);
+                            drawList->AddCircleFilled(screenPos, 8.0f, color);
+                            drawList->AddCircle(screenPos, 12.0f, IM_COL32(255, 255, 255, 180), 0, 2.0f);
+                            // Label with index
+                            char label[16];
+                            snprintf(label, sizeof(label), "CP %d", (int)i);
+                            drawList->AddText(ImVec2(screenPos.x + 14.0f, screenPos.y - 8.0f), IM_COL32(255, 255, 255, 255), label);
+                        }
+                    }
+                }
+            }
+
+            // Placement controls HUD panel.
+            const ImVec2 display = ImGui::GetIO().DisplaySize;
+            ImGui::SetNextWindowPos(ImVec2(std::max(10.0f, display.x - 320.0f), std::max(10.0f, display.y - 260.0f)), ImGuiCond_Always);
+            ImGui::SetNextWindowBgAlpha(0.7f);
+
+            ImGuiWindowFlags cpFlags = 0;
+            cpFlags |= ImGuiWindowFlags_NoDecoration;
+            cpFlags |= ImGuiWindowFlags_AlwaysAutoResize;
+            cpFlags |= ImGuiWindowFlags_NoSavedSettings;
+            cpFlags |= ImGuiWindowFlags_NoFocusOnAppearing;
+            cpFlags |= ImGuiWindowFlags_NoNav;
+
+            if(ImGui::Begin("CP Placement", nullptr, cpFlags)){
+                ImGui::TextColored(ImVec4(0.2f, 1.0f, 0.4f, 1.0f), "CHECKPOINT PLACEMENT MODE");
+                ImGui::Separator();
+                ImGui::Text("P = Place checkpoint");
+                ImGui::Text("U = Undo last");
+                ImGui::Text("O = Output JSON to console");
+                ImGui::Text("C = Toggle this mode");
+                ImGui::Separator();
+                ImGui::SliderFloat("Radius", &placementRadius, 1.0f, 20.0f, "%.1f");
+                ImGui::Text("Placed: %d checkpoints", (int)placedCheckpoints.size());
+                ImGui::Separator();
+                for(size_t i = 0; i < placedCheckpoints.size(); i++){
+                    const auto& cp = placedCheckpoints[i];
+                    ImGui::Text("  [%d] (%.1f, %.1f, %.1f) r=%.1f",
+                        (int)i, cp.position.x, cp.position.y, cp.position.z, cp.radius);
+                }
+            }
+            ImGui::End();
+        } else {
+            // Small hint when not in placement mode
+            ImDrawList* drawList = ImGui::GetForegroundDrawList();
+            const ImVec2 display = ImGui::GetIO().DisplaySize;
+            drawList->AddText(ImVec2(display.x - 220.0f, display.y - 20.0f),
+                IM_COL32(180, 180, 180, 140), "Press C for checkpoint placement");
         }
     }
 

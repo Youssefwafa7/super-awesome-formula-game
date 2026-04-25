@@ -11,6 +11,8 @@
 #include "movement.hpp"
 #include "wheel-spin.hpp"
 #include "light.hpp"
+#include "checkpoint.hpp"
+#include "race-progress.hpp"
 
 namespace our {
 
@@ -40,6 +42,10 @@ namespace our {
             component = entity->addComponent<WheelSpinComponent>();
         } else if (type == LightComponent::getID()) {
             component = entity->addComponent<LightComponent>();
+        } else if (type == CheckpointComponent::getID()) {
+            component = entity->addComponent<CheckpointComponent>();
+        } else if (type == RaceProgressComponent::getID()) {
+            component = entity->addComponent<RaceProgressComponent>();
         }
         if(component) component->deserialize(data);
     }

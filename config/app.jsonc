@@ -127,6 +127,12 @@
                 "includeNameSubstrings": ["wheel", "tire", "tyre", "rim"],
                 "excludeNameSubstrings": ["body", "chassis"],
                 "debugPrintParts": false
+              },
+              {
+                "type": "Race Progress",
+                "currentLap": 0,
+                "nextCheckpointIndex": 0,
+                "totalLaps": 3
               }
             ]
           }
@@ -195,6 +201,12 @@
                 "includeNameSubstrings": ["wheel", "tire", "tyre", "rim"],
                 "excludeNameSubstrings": ["body", "chassis"],
                 "debugPrintParts": false
+              },
+              {
+                "type": "Race Progress",
+                "currentLap": 0,
+                "nextCheckpointIndex": 0,
+                "totalLaps": 3
               }
             ]
           }
@@ -210,63 +222,110 @@
             "position": [40.35, 0.48, 3.83],
             "rotation": [0, -267, 0]
           },
-          "entity": {
-            "name": "track",
-            "position": [-18.04, 0.0, -26.12],
-            "rotation": [0, 0, 0],
-            "scale": [50.0, 50.0, 50.0],
-            "components": [
-              {
-                "type": "Track Heightfield",
-                "model": "assets/models/race_trackkarting_track_based_on_south_garda/scene.gltf",
-                "cellSize": 0.2,
-                "minNormalY": 0.6,
-                "hardWallNormalY": 0.12,
-                "treatUnknownAsGrass": true,
-                "grassSearchCells": 4,
-                "buildWallSegments": true,
-                "wallCollisionDilateCells": 0,
-                "wallCollisionMargin": 0.0,
-                "roadTextureHints": [
-                  "road",
-                  "asphalt",
-                  "track",
-                  "line",
-                  "concrete"
-                ],
-                "grassTextureHints": [
-                  "grass",
-                  "terrain",
-                  "ground",
-                  "turf",
-                  "soil",
-                  "dirt"
-                ],
-                "wallTextureHints": [
-                  "wall",
-                  "barrier",
-                  "fence",
-                  "guardrail",
-                  "rail",
-                  "tire",
-                  "tyre",
-                  "collider"
-                ]
-              },
-              {
-                "type": "Multi Mesh Renderer",
-                "mergeByMaterial": true,
-                "model": "assets/models/race_trackkarting_track_based_on_south_garda/scene.gltf",
-                "shader": "lit",
-                "sampler": "default",
-                "debugPrintParts": false,
-                "pipelineState": {
-                  "faceCulling": { "enabled": false },
-                  "depthTesting": { "enabled": true }
+          "entities": [
+            {
+              "name": "track",
+              "position": [-18.04, 0.0, -26.12],
+              "rotation": [0, 0, 0],
+              "scale": [50.0, 50.0, 50.0],
+              "components": [
+                {
+                  "type": "Track Heightfield",
+                  "model": "assets/models/race_trackkarting_track_based_on_south_garda/scene.gltf",
+                  "cellSize": 0.2,
+                  "minNormalY": 0.6,
+                  "hardWallNormalY": 0.12,
+                  "treatUnknownAsGrass": true,
+                  "grassSearchCells": 4,
+                  "buildWallSegments": true,
+                  "wallCollisionDilateCells": 0,
+                  "wallCollisionMargin": 0.0,
+                  "roadTextureHints": [
+                    "road",
+                    "asphalt",
+                    "track",
+                    "line",
+                    "concrete"
+                  ],
+                  "grassTextureHints": [
+                    "grass",
+                    "terrain",
+                    "ground",
+                    "turf",
+                    "soil",
+                    "dirt"
+                  ],
+                  "wallTextureHints": [
+                    "wall",
+                    "barrier",
+                    "fence",
+                    "guardrail",
+                    "rail",
+                    "tire",
+                    "tyre",
+                    "collider"
+                  ]
+                },
+                {
+                  "type": "Multi Mesh Renderer",
+                  "mergeByMaterial": true,
+                  "model": "assets/models/race_trackkarting_track_based_on_south_garda/scene.gltf",
+                  "shader": "lit",
+                  "sampler": "default",
+                  "debugPrintParts": false,
+                  "pipelineState": {
+                    "faceCulling": { "enabled": false },
+                    "depthTesting": { "enabled": true }
+                  }
                 }
-              }
-            ]
-          }
+              ]
+            },
+            {
+              "name": "checkpoint_0",
+              "position": [31.9371, 0.342665, -16.8574],
+              "components": [{ "type": "Checkpoint", "index": 0, "radius": 15.0 }]
+            },
+            {
+              "name": "checkpoint_1",
+              "position": [-26.9257, 0.342661, 10.8097],
+              "components": [{ "type": "Checkpoint", "index": 1, "radius": 15.0 }]
+            },
+            {
+              "name": "checkpoint_2",
+              "position": [-84.671, 0.34266, 15.2096],
+              "components": [{ "type": "Checkpoint", "index": 2, "radius": 15.0 }]
+            },
+            {
+              "name": "checkpoint_3",
+              "position": [-47.7216, 0.342662, 3.45531],
+              "components": [{ "type": "Checkpoint", "index": 3, "radius": 15.0 }]
+            },
+            {
+              "name": "checkpoint_4",
+              "position": [-77.0518, 0.342664, -8.15385],
+              "components": [{ "type": "Checkpoint", "index": 4, "radius": 15.0 }]
+            },
+            {
+              "name": "checkpoint_5",
+              "position": [59.8379, 0.342671, -53.2003],
+              "components": [{ "type": "Checkpoint", "index": 5, "radius": 15.0 }]
+            },
+            {
+              "name": "checkpoint_6",
+              "position": [92.8972, 0.34266, 14.6516],
+              "components": [{ "type": "Checkpoint", "index": 6, "radius": 15.0 }]
+            },
+            {
+              "name": "checkpoint_7",
+              "position": [42.7323, 0.342662, 2.62188],
+              "components": [{ "type": "Checkpoint", "index": 7, "radius": 15.0 }]
+            },
+            {
+              "name": "checkpoint_8",
+              "position": [77.4206, 0.342667, -24.4789],
+              "components": [{ "type": "Checkpoint", "index": 8, "radius": 15.0 }]
+            }
+          ]
         },
         // Track preset: Mini Silverstone
         {
@@ -277,64 +336,86 @@
             "position": [100.10, -0.42, 1.29],
             "rotation": [0, 70.8, 0]
           },
-          "entity": {
-            "name": "track",
-            "position": [0.0, 0.0, 0.0],
-            "rotation": [0, 0, 0],
-            "scale": [0.5, 0.5, 0.5],
-            "components": [
-              {
-                "type": "Track Heightfield",
-                "model": "assets/models/silverstone-gltf-test/silverstone_light.gltf",
-                "cellSize": 0.6,
-                "minNormalY": 0.6,
-                "hardWallNormalY": 0.0,
-                "treatUnknownAsGrass": true,
-                "grassSearchCells": 2,
-                "buildWallSegments": true,
-                "wallCollisionDilateCells": 0,
-                "wallCollisionMargin": 0.0,
-                "roadTextureHints": [
-                  "road",
-                  "asphalt",
-                  "track",
-                  "line",
-                  "concrete"
-                ],
-                "grassTextureHints": [
-                  "grass",
-                  "terrain",
-                  "ground",
-                  "turf",
-                  "soil",
-                  "dirt"
-                ],
-                "wallTextureHints": [
-                  "wall",
-                  "barrier",
-                  "fence",
-                  "guardrail",
-                  "rail",
-                  "tire",
-                  "tyre",
-                  "collider"
-                ]
-              },
-              {
-                "type": "Multi Mesh Renderer",
-                "mergeByMaterial": true,
-                "model": "assets/models/silverstone-gltf-test/silverstone_light.gltf",
-                "shader": "lit",
-                "sampler": "default",
-                "debugPrintParts": false,
-                "excludeMaterials": ["collider"],
-                "pipelineState": {
-                  "faceCulling": { "enabled": false },
-                  "depthTesting": { "enabled": true }
+          "entities": [
+            {
+              "name": "track",
+              "position": [0.0, 0.0, 0.0],
+              "rotation": [0, 0, 0],
+              "scale": [0.5, 0.5, 0.5],
+              "components": [
+                {
+                  "type": "Track Heightfield",
+                  "model": "assets/models/silverstone-gltf-test/silverstone_light.gltf",
+                  "cellSize": 0.6,
+                  "minNormalY": 0.6,
+                  "hardWallNormalY": 0.0,
+                  "treatUnknownAsGrass": true,
+                  "grassSearchCells": 2,
+                  "buildWallSegments": true,
+                  "wallCollisionDilateCells": 0,
+                  "wallCollisionMargin": 0.0,
+                  "roadTextureHints": [
+                    "road",
+                    "asphalt",
+                    "track",
+                    "line",
+                    "concrete"
+                  ],
+                  "grassTextureHints": [
+                    "grass",
+                    "terrain",
+                    "ground",
+                    "turf",
+                    "soil",
+                    "dirt"
+                  ],
+                  "wallTextureHints": [
+                    "wall",
+                    "barrier",
+                    "fence",
+                    "guardrail",
+                    "rail",
+                    "tire",
+                    "tyre",
+                    "collider"
+                  ]
+                },
+                {
+                  "type": "Multi Mesh Renderer",
+                  "mergeByMaterial": true,
+                  "model": "assets/models/silverstone-gltf-test/silverstone_light.gltf",
+                  "shader": "lit",
+                  "sampler": "default",
+                  "debugPrintParts": false,
+                  "excludeMaterials": ["collider"],
+                  "pipelineState": {
+                    "faceCulling": { "enabled": false },
+                    "depthTesting": { "enabled": true }
+                  }
                 }
-              }
-            ]
-          }
+              ]
+            },
+            {
+              "name": "checkpoint_0",
+              "position": [100.10, 0.0, 1.29],
+              "components": [{ "type": "Checkpoint", "index": 0, "radius": 8.0 }]
+            },
+            {
+              "name": "checkpoint_1",
+              "position": [70.0, 0.0, -30.0],
+              "components": [{ "type": "Checkpoint", "index": 1, "radius": 8.0 }]
+            },
+            {
+              "name": "checkpoint_2",
+              "position": [20.0, 0.0, -20.0],
+              "components": [{ "type": "Checkpoint", "index": 2, "radius": 8.0 }]
+            },
+            {
+              "name": "checkpoint_3",
+              "position": [50.0, 0.0, 30.0],
+              "components": [{ "type": "Checkpoint", "index": 3, "radius": 8.0 }]
+            }
+          ]
         }
       ]
     },

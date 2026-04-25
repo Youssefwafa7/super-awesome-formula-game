@@ -106,6 +106,10 @@ set(COMMON_SOURCES
         source/common/components/wheel-spin.cpp
         source/common/components/light.hpp
         source/common/components/light.cpp
+        source/common/components/checkpoint.hpp
+        source/common/components/checkpoint.cpp
+        source/common/components/race-progress.hpp
+        source/common/components/race-progress.cpp
         source/common/components/component-deserializer.hpp
 
         source/common/systems/forward-renderer.hpp
@@ -115,6 +119,7 @@ set(COMMON_SOURCES
         source/common/systems/car-controller.hpp
         source/common/systems/chase-camera.hpp
         source/common/systems/wheel-spin.hpp
+        source/common/systems/race.hpp
 )
 
 # Define the directories in which to search for the included headers
