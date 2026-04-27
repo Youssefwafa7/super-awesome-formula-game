@@ -17,16 +17,14 @@
 #include <vector>
 #include <cstdio>
 
-// This struct is used to store the location and size of a button and the code it should execute when clicked
+#define NUM_TRACK_PRESETS 2
+#define NUM_CAR_PRESETS 2
+
 struct Button
 {
-    // The position (of the top-left corner) of the button and its size in pixels
     glm::vec2 position, size;
-    // The function that should be excuted when the button is clicked. It takes no arguments and returns nothing.
     std::function<void()> action;
 
-    // This function returns true if the given vector v is inside the button. Otherwise, false is returned.
-    // This is used to check if the mouse is hovering over the button.
     bool isInside(const glm::vec2 &v) const
     {
         return position.x <= v.x && position.y <= v.y &&
@@ -34,8 +32,6 @@ struct Button
                v.y <= position.y + size.y;
     }
 
-    // This function returns the local to world matrix to transform a rectangle of size 1x1
-    // (and whose top-left corner is at the origin) to be the button.
     glm::mat4 getLocalToWorld() const
     {
         return glm::translate(glm::mat4(1.0f), glm::vec3(position.x, position.y, 0.0f)) *
@@ -43,7 +39,6 @@ struct Button
     }
 };
 
-// ── F1 Menu Screen Enum ──
 enum class MenuScreen
 {
     MAIN_MENU,
@@ -51,33 +46,23 @@ enum class MenuScreen
     CAR_SELECT
 };
 
-// This state shows how to use some of the abstractions we created to make a menu.
 class Menustate : public our::State
 {
-
-    // A meterial holding the menu shader and the menu texture to draw
     our::TexturedMaterial *menuMaterial;
-    // A material to be used to highlight hovered buttons (we will use blending to create a negative effect).
     our::TintedMaterial *highlightMaterial;
-    // A rectangle mesh on which the menu material will be drawn
     our::Mesh *rectangle;
-    // A variable to record the time since the state is entered (it will be used for the fading effect).
     float time;
-    // An array of the button that we can interact with
     std::array<Button, 2> buttons;
 
-    // ── Audio ──
     ma_engine audioEngine;
     ma_sound menuMusic;
     bool isAudioInitialized = false;
     bool isMusicLoaded = false;
 
-    // ── Fonts (loaded once, crisp at native size) ──
-    ImFont* titleFont  = nullptr;  // ~48px bold
-    ImFont* headingFont = nullptr; // ~32px bold
-    ImFont* bodyFont   = nullptr;  // ~20px bold
+    ImFont* titleFont  = nullptr;
+    ImFont* headingFont = nullptr;
+    ImFont* bodyFont   = nullptr;
 
-    // ── Preset data ──
     std::vector<std::string> carPresetIds;
     std::vector<std::string> carPresetLabels;
     std::vector<std::string> trackPresetIds;
@@ -85,18 +70,20 @@ class Menustate : public our::State
     int selectedCarIndex = 0;
     int selectedTrackIndex = 0;
 
-    // ── ImGui menu state ──
     MenuScreen currentScreen = MenuScreen::MAIN_MENU;
 
-    // ── F1 Theme Colors ──
-    static ImVec4 kBgColor() { return ImVec4(0.04f, 0.04f, 0.04f, 0.00f); }   // #0A0A0A transparent
-    static ImVec4 kRedAccent() { return ImVec4(0.91f, 0.00f, 0.18f, 1.00f); } // #E8002D
+    int selectedIndex = 0; 
+    bool keyboardNavActive = false; 
+
+    static ImVec4 kBgColor() { return ImVec4(0.04f, 0.04f, 0.04f, 0.00f); }
+    static ImVec4 kRedAccent() { return ImVec4(0.91f, 0.00f, 0.18f, 1.00f); }
     static ImVec4 kRedHover() { return ImVec4(1.00f, 0.15f, 0.30f, 1.00f); }
     static ImVec4 kRedActive() { return ImVec4(0.70f, 0.00f, 0.12f, 1.00f); }
     static ImVec4 kCardBg() { return ImVec4(0.10f, 0.10f, 0.10f, 1.00f); }
     static ImVec4 kCardSelected() { return ImVec4(0.20f, 0.04f, 0.06f, 1.00f); }
     static ImVec4 kTextWhite() { return ImVec4(1.0f, 1.0f, 1.0f, 1.0f); }
     static ImVec4 kTextDim() { return ImVec4(0.6f, 0.6f, 0.6f, 1.0f); }
+    static ImVec4 kButtonDark() { return ImVec4(0.15f, 0.15f, 0.15f, 1.00f); }
 
     void loadPresetsFromConfig()
     {
@@ -106,11 +93,9 @@ class Menustate : public our::State
         trackPresetLabels.clear();
 
         const auto &cfg = getApp()->getConfig();
-        if (!cfg.contains("scene"))
-            return;
+        if (!cfg.contains("scene")) return;
         const auto &scene = cfg["scene"];
-        if (!scene.contains("presets"))
-            return;
+        if (!scene.contains("presets")) return;
         const auto &presets = scene["presets"];
 
         if (presets.contains("cars") && presets["cars"].is_array())
@@ -118,8 +103,7 @@ class Menustate : public our::State
             for (const auto &c : presets["cars"])
             {
                 const std::string id = c.value("id", std::string{});
-                if (id.empty())
-                    continue;
+                if (id.empty()) continue;
                 carPresetIds.push_back(id);
                 carPresetLabels.push_back(c.value("label", id));
             }
@@ -130,8 +114,7 @@ class Menustate : public our::State
             for (const auto &t : presets["tracks"])
             {
                 const std::string id = t.value("id", std::string{});
-                if (id.empty())
-                    continue;
+                if (id.empty()) continue;
                 trackPresetIds.push_back(id);
                 trackPresetLabels.push_back(t.value("label", id));
             }
@@ -143,40 +126,28 @@ class Menustate : public our::State
         auto findIndex = [](const std::vector<std::string> &ids, const std::string &needle)
         {
             for (int i = 0; i < (int)ids.size(); i++)
-                if (ids[i] == needle)
-                    return i;
+                if (ids[i] == needle) return i;
             return 0;
         };
 
-        if (!carPresetIds.empty())
-            selectedCarIndex = findIndex(carPresetIds, defaultCar);
-        if (!trackPresetIds.empty())
-            selectedTrackIndex = findIndex(trackPresetIds, defaultTrack);
+        if (!carPresetIds.empty()) selectedCarIndex = findIndex(carPresetIds, defaultCar);
+        if (!trackPresetIds.empty()) selectedTrackIndex = findIndex(trackPresetIds, defaultTrack);
 
-        if (!carPresetIds.empty())
-            getApp()->setSelectedCarPreset(carPresetIds[selectedCarIndex]);
-        if (!trackPresetIds.empty())
-            getApp()->setSelectedTrackPreset(trackPresetIds[selectedTrackIndex]);
+        if (!carPresetIds.empty()) getApp()->setSelectedCarPreset(carPresetIds[selectedCarIndex]);
+        if (!trackPresetIds.empty()) getApp()->setSelectedTrackPreset(trackPresetIds[selectedTrackIndex]);
     }
 
-    // ── Helper: push the F1 dark theme styles ──
     int pushF1Theme()
     {
         int colorCount = 0;
-        ImGui::PushStyleColor(ImGuiCol_WindowBg, kBgColor());
-        colorCount++;
-        ImGui::PushStyleColor(ImGuiCol_Button, kRedAccent());
-        colorCount++;
-        ImGui::PushStyleColor(ImGuiCol_ButtonHovered, kRedHover());
-        colorCount++;
-        ImGui::PushStyleColor(ImGuiCol_ButtonActive, kRedActive());
-        colorCount++;
-        ImGui::PushStyleColor(ImGuiCol_Text, kTextWhite());
-        colorCount++;
-        ImGui::PushStyleColor(ImGuiCol_Border, ImVec4(0.2f, 0.2f, 0.2f, 1.0f));
-        colorCount++;
-        ImGui::PushStyleColor(ImGuiCol_FrameBg, kCardBg());
-        colorCount++;
+        ImGui::PushStyleColor(ImGuiCol_WindowBg, kBgColor()); colorCount++;
+        // Theme defaults for buttons (Dark by default, Red on Hover)
+        ImGui::PushStyleColor(ImGuiCol_Button, kButtonDark()); colorCount++;
+        ImGui::PushStyleColor(ImGuiCol_ButtonHovered, kRedHover()); colorCount++;
+        ImGui::PushStyleColor(ImGuiCol_ButtonActive, kRedActive()); colorCount++;
+        ImGui::PushStyleColor(ImGuiCol_Text, kTextWhite()); colorCount++;
+        ImGui::PushStyleColor(ImGuiCol_Border, ImVec4(0.2f, 0.2f, 0.2f, 1.0f)); colorCount++;
+        ImGui::PushStyleColor(ImGuiCol_FrameBg, kCardBg()); colorCount++;
 
         ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 0.0f);
         ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 4.0f);
@@ -192,7 +163,6 @@ class Menustate : public our::State
         ImGui::PopStyleColor(colorCount);
     }
 
-    // ── Helper: centered text ──
     static void textCentered(const char *text)
     {
         float w = ImGui::CalcTextSize(text).x;
@@ -200,7 +170,6 @@ class Menustate : public our::State
         ImGui::Text("%s", text);
     }
 
-    // ── Helper: centered text with red glow (illuminate effect) ──
     static void textCenteredGlow(const char *text, const ImVec4& glowColor)
     {
         float w = ImGui::CalcTextSize(text).x;
@@ -212,7 +181,6 @@ class Menustate : public our::State
         ImFont* font = ImGui::GetFont();
         float fontSize = ImGui::GetFontSize();
 
-        // Draw glow layers (expanding offsets with decreasing alpha)
         const float offsets[] = {4.0f, 3.0f, 2.0f, 1.0f};
         const float alphas[]  = {0.06f, 0.10f, 0.15f, 0.25f};
         for(int i = 0; i < 4; i++) {
@@ -224,21 +192,29 @@ class Menustate : public our::State
             dl->AddText(font, fontSize, ImVec2(screenPos.x, screenPos.y + off), col, text);
         }
 
-        // Draw main white text on top
         dl->AddText(font, fontSize, screenPos, IM_COL32(255, 255, 255, 255), text);
-
-        // Advance cursor past the text
         ImGui::Dummy(ImVec2(w, fontSize));
     }
 
-    // ── Helper: centered button, returns true if clicked ──
-    static bool buttonCentered(const char *label, const ImVec2 &size = ImVec2(220, 50))
+    // Centered button that forced RED hover look when keyboard-selected
+    static bool buttonCentered(const char *label, const ImVec2 &size = ImVec2(220, 50), bool selected = false)
     {
         ImGui::SetCursorPosX((ImGui::GetWindowWidth() - size.x) * 0.5f);
-        return ImGui::Button(label, size);
+        if (selected)
+        {
+            ImGui::PushStyleColor(ImGuiCol_Button, kRedHover());
+            ImGui::PushStyleColor(ImGuiCol_Border, kTextWhite());
+            ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 2.0f);
+        }
+        bool clicked = ImGui::Button(label, size);
+        if (selected)
+        {
+            ImGui::PopStyleVar(1);
+            ImGui::PopStyleColor(2);
+        }
+        return clicked;
     }
 
-    // ── Screen: Main Menu ──
     void renderMainMenu()
     {
         const ImVec2 display = ImGui::GetIO().DisplaySize;
@@ -250,11 +226,9 @@ class Menustate : public our::State
                                  ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoNav;
         if (ImGui::Begin("##MainMenu", nullptr, flags))
         {
-            // Vertical centering
             float contentH = 80.0f + 40.0f + 40.0f + 65.0f + 65.0f + 30.0f;
             ImGui::SetCursorPosY((display.y - contentH) * 0.5f);
 
-            // Title with glow
             if(titleFont) ImGui::PushFont(titleFont);
             textCenteredGlow("SUPER AWESOME FORMULA GAME", kRedAccent());
             if(titleFont) ImGui::PopFont();
@@ -262,36 +236,29 @@ class Menustate : public our::State
 
             ImGui::Dummy(ImVec2(0, 40));
 
-            // Subtitle
             ImGui::PushStyleColor(ImGuiCol_Text, kTextDim());
             textCentered("Choose your track and car, then race!");
             ImGui::PopStyleColor();
 
             ImGui::Dummy(ImVec2(0, 40));
 
-            // PLAY button
-            if (buttonCentered("PLAY", ImVec2(260, 55)))
+            if (buttonCentered("PLAY", ImVec2(260, 55), keyboardNavActive && selectedIndex == 0))
             {
                 currentScreen = MenuScreen::TRACK_SELECT;
+                selectedIndex = 0;
             }
             ImGui::Dummy(ImVec2(0, 8));
 
-            // EXIT button (styled differently)
-            ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.15f, 0.15f, 0.15f, 1.0f));
-            ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.25f, 0.25f, 0.25f, 1.0f));
-            ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.10f, 0.10f, 0.10f, 1.0f));
-            if (buttonCentered("EXIT", ImVec2(260, 55)))
+            if (buttonCentered("EXIT", ImVec2(260, 55), keyboardNavActive && selectedIndex == 1))
             {
                 getApp()->close();
             }
-            ImGui::PopStyleColor(3);
             if(bodyFont) ImGui::PopFont();
         }
         ImGui::End();
         popF1Theme(colors);
     }
 
-    // ── Screen: Track Selection ──
     void renderTrackSelect()
     {
         const ImVec2 display = ImGui::GetIO().DisplaySize;
@@ -303,7 +270,6 @@ class Menustate : public our::State
                                  ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoNav;
         if (ImGui::Begin("##TrackSelect", nullptr, flags))
         {
-            // Vertical centering
             float contentH = 50.0f + 30.0f + 140.0f + 50.0f + 55.0f;
             ImGui::SetCursorPosY((display.y - contentH) * 0.5f);
 
@@ -313,7 +279,6 @@ class Menustate : public our::State
             if(bodyFont) ImGui::PushFont(bodyFont);
             ImGui::Dummy(ImVec2(0, 30));
 
-            // Draw track cards side by side
             const char *trackNames[] = {"Montreal", "Silverstone"};
             const int trackCount = (int)trackPresetIds.size();
             const int displayCount = std::min(trackCount, 2);
@@ -327,77 +292,89 @@ class Menustate : public our::State
             for (int i = 0; i < displayCount; i++)
             {
                 ImGui::SetCursorPosX(startX + i * (cardW + gap));
-                if (i > 0)
-                    ImGui::SameLine();
+                if (i > 0) ImGui::SameLine();
 
                 bool isSelected = (selectedTrackIndex == i);
+                bool isKeyboardSelected = keyboardNavActive && (selectedIndex == i);
                 const char *name = (i < 2) ? trackNames[i] : trackPresetLabels[i].c_str();
 
-                // Card styling
-                if (isSelected)
+                if (isSelected || isKeyboardSelected)
                 {
                     ImGui::PushStyleColor(ImGuiCol_Button, kCardSelected());
                     ImGui::PushStyleColor(ImGuiCol_ButtonHovered, kCardSelected());
                     ImGui::PushStyleColor(ImGuiCol_ButtonActive, kCardSelected());
-                    ImGui::PushStyleColor(ImGuiCol_Border, kRedAccent());
+                    ImGui::PushStyleColor(ImGuiCol_Border, isKeyboardSelected ? kTextWhite() : kRedAccent());
                     ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 2.0f);
                 }
                 else
                 {
-                    ImGui::PushStyleColor(ImGuiCol_Button, kCardBg());
-                    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.15f, 0.15f, 0.15f, 1.0f));
-                    ImGui::PushStyleColor(ImGuiCol_ButtonActive, kCardBg());
+                    ImGui::PushStyleColor(ImGuiCol_Button, kButtonDark());
+                    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, kRedHover());
+                    ImGui::PushStyleColor(ImGuiCol_ButtonActive, kButtonDark());
                     ImGui::PushStyleColor(ImGuiCol_Border, ImVec4(0.2f, 0.2f, 0.2f, 1.0f));
                     ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 1.0f);
                 }
 
-                // Build card label with newlines for visual layout
                 char cardLabel[128];
                 snprintf(cardLabel, sizeof(cardLabel), "\n  %s\n\n  %s\n", name, isSelected ? "[SELECTED]" : "Click to select");
-
                 char btnId[64];
                 snprintf(btnId, sizeof(btnId), "%s##track%d", cardLabel, i);
 
                 if (ImGui::Button(btnId, ImVec2(cardW, cardH)))
                 {
                     selectedTrackIndex = i;
-                    if (i < trackCount)
-                        getApp()->setSelectedTrackPreset(trackPresetIds[i]);
+                    if (i < trackCount) getApp()->setSelectedTrackPreset(trackPresetIds[i]);
                 }
 
                 ImGui::PopStyleVar(1);
-                ImGui::PopStyleColor(4);
+                ImGui::PopStyleColor(isSelected || isKeyboardSelected ? 4 : 4);
             }
 
             ImGui::Dummy(ImVec2(0, 40));
 
-            // Navigation buttons
+            // --- Navigation Buttons (BACK/NEXT) ---
             float navW = 160.0f;
             float navGap = 20.0f;
             float navStartX = (ImGui::GetWindowWidth() - 2 * navW - navGap) * 0.5f;
 
+            // BACK
             ImGui::SetCursorPosX(navStartX);
-            ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.15f, 0.15f, 0.15f, 1.0f));
-            ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.25f, 0.25f, 0.25f, 1.0f));
-            ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.10f, 0.10f, 0.10f, 1.0f));
-            if (ImGui::Button("< BACK", ImVec2(navW, 45)))
-            {
+            bool backActive = (keyboardNavActive && selectedIndex == 2);
+            if (backActive) {
+                ImGui::PushStyleColor(ImGuiCol_Button, kRedHover());
+                ImGui::PushStyleColor(ImGuiCol_Border, kTextWhite());
+                ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 2.0f);
+            } 
+            // Else use theme default (Dark)
+
+            if (ImGui::Button("< BACK", ImVec2(navW, 45))) {
                 currentScreen = MenuScreen::MAIN_MENU;
+                selectedIndex = 0;
             }
-            ImGui::PopStyleColor(3);
+            if (backActive) { ImGui::PopStyleColor(2); ImGui::PopStyleVar(1); }
 
             ImGui::SameLine(0, navGap);
-            if (ImGui::Button("NEXT >", ImVec2(navW, 45)))
-            {
-                currentScreen = MenuScreen::CAR_SELECT;
+
+            // NEXT
+            bool nextActive = (keyboardNavActive && selectedIndex == 3);
+            if (nextActive) {
+                ImGui::PushStyleColor(ImGuiCol_Button, kRedHover());
+                ImGui::PushStyleColor(ImGuiCol_Border, kTextWhite());
+                ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 2.0f);
             }
+
+            if (ImGui::Button("NEXT >", ImVec2(navW, 45))) {
+                currentScreen = MenuScreen::CAR_SELECT;
+                selectedIndex = 0;
+            }
+            if (nextActive) { ImGui::PopStyleColor(2); ImGui::PopStyleVar(1); }
+
             if(bodyFont) ImGui::PopFont();
         }
         ImGui::End();
         popF1Theme(colors);
     }
 
-    // ── Screen: Car Selection ──
     void renderCarSelect()
     {
         const ImVec2 display = ImGui::GetIO().DisplaySize;
@@ -409,7 +386,6 @@ class Menustate : public our::State
                                  ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoNav;
         if (ImGui::Begin("##CarSelect", nullptr, flags))
         {
-            // Vertical centering
             float contentH = 50.0f + 30.0f + 140.0f + 50.0f + 55.0f;
             ImGui::SetCursorPosY((display.y - contentH) * 0.5f);
 
@@ -432,25 +408,25 @@ class Menustate : public our::State
             for (int i = 0; i < displayCount; i++)
             {
                 ImGui::SetCursorPosX(startX + i * (cardW + gap));
-                if (i > 0)
-                    ImGui::SameLine();
+                if (i > 0) ImGui::SameLine();
 
                 bool isSelected = (selectedCarIndex == i);
+                bool isKeyboardSelected = keyboardNavActive && (selectedIndex == i);
                 const char *name = (i < 2) ? carNames[i] : carPresetLabels[i].c_str();
 
-                if (isSelected)
+                if (isSelected || isKeyboardSelected)
                 {
                     ImGui::PushStyleColor(ImGuiCol_Button, kCardSelected());
                     ImGui::PushStyleColor(ImGuiCol_ButtonHovered, kCardSelected());
                     ImGui::PushStyleColor(ImGuiCol_ButtonActive, kCardSelected());
-                    ImGui::PushStyleColor(ImGuiCol_Border, kRedAccent());
+                    ImGui::PushStyleColor(ImGuiCol_Border, isKeyboardSelected ? kTextWhite() : kRedAccent());
                     ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 2.0f);
                 }
                 else
                 {
-                    ImGui::PushStyleColor(ImGuiCol_Button, kCardBg());
-                    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.15f, 0.15f, 0.15f, 1.0f));
-                    ImGui::PushStyleColor(ImGuiCol_ButtonActive, kCardBg());
+                    ImGui::PushStyleColor(ImGuiCol_Button, kButtonDark());
+                    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, kRedHover());
+                    ImGui::PushStyleColor(ImGuiCol_ButtonActive, kButtonDark());
                     ImGui::PushStyleColor(ImGuiCol_Border, ImVec4(0.2f, 0.2f, 0.2f, 1.0f));
                     ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 1.0f);
                 }
@@ -463,36 +439,50 @@ class Menustate : public our::State
                 if (ImGui::Button(btnId, ImVec2(cardW, cardH)))
                 {
                     selectedCarIndex = i;
-                    if (i < carCount)
-                        getApp()->setSelectedCarPreset(carPresetIds[i]);
+                    if (i < carCount) getApp()->setSelectedCarPreset(carPresetIds[i]);
                 }
 
                 ImGui::PopStyleVar(1);
-                ImGui::PopStyleColor(4);
+                ImGui::PopStyleColor(isSelected || isKeyboardSelected ? 4 : 4);
             }
 
             ImGui::Dummy(ImVec2(0, 40));
 
-            // Navigation buttons
+            // --- Navigation Buttons ---
             float navW = 160.0f;
             float navGap = 20.0f;
             float navStartX = (ImGui::GetWindowWidth() - 2 * navW - navGap) * 0.5f;
 
+            // BACK
             ImGui::SetCursorPosX(navStartX);
-            ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.15f, 0.15f, 0.15f, 1.0f));
-            ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.25f, 0.25f, 0.25f, 1.0f));
-            ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.10f, 0.10f, 0.10f, 1.0f));
-            if (ImGui::Button("< BACK##car", ImVec2(navW, 45)))
-            {
-                currentScreen = MenuScreen::TRACK_SELECT;
+            bool backActive = (keyboardNavActive && selectedIndex == 2);
+            if (backActive) {
+                ImGui::PushStyleColor(ImGuiCol_Button, kRedHover());
+                ImGui::PushStyleColor(ImGuiCol_Border, kTextWhite());
+                ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 2.0f);
             }
-            ImGui::PopStyleColor(3);
+
+            if (ImGui::Button("< BACK##car", ImVec2(navW, 45))) {
+                currentScreen = MenuScreen::TRACK_SELECT;
+                selectedIndex = 0;
+            }
+            if (backActive) { ImGui::PopStyleColor(2); ImGui::PopStyleVar(1); }
 
             ImGui::SameLine(0, navGap);
-            if (ImGui::Button("START RACE", ImVec2(navW, 45)))
-            {
+
+            // START
+            bool startActive = (keyboardNavActive && selectedIndex == 3);
+            if (startActive) {
+                ImGui::PushStyleColor(ImGuiCol_Button, kRedHover());
+                ImGui::PushStyleColor(ImGuiCol_Border, kTextWhite());
+                ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 2.0f);
+            }
+
+            if (ImGui::Button("START RACE", ImVec2(navW, 45))) {
                 getApp()->changeState("play");
             }
+            if (startActive) { ImGui::PopStyleColor(2); ImGui::PopStyleVar(1); }
+
             if(bodyFont) ImGui::PopFont();
         }
         ImGui::End();
@@ -506,15 +496,12 @@ class Menustate : public our::State
 
         ImGuiIO& io = ImGui::GetIO();
 
-        // Add the small default font FIRST so it stays the default for in-game HUDs
-        io.Fonts->AddFontDefault();
-
         ImFontConfig cfg;
         cfg.OversampleH = 3;
         cfg.OversampleV = 2;
 
-        // Try to find a clean TTF font on the system
         const char* fontPaths[] = {
+            "assets/fonts/SuperMario256.ttf",
             "/usr/share/fonts/google-noto/NotoSans-ExtraBold.ttf",
             "/usr/share/fonts/google-noto/NotoSans-Bold.ttf",
             "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
@@ -532,17 +519,14 @@ class Menustate : public our::State
             titleFont   = io.Fonts->AddFontFromFileTTF(fontPath, 48.0f, &cfg);
             headingFont = io.Fonts->AddFontFromFileTTF(fontPath, 32.0f, &cfg);
             bodyFont    = io.Fonts->AddFontFromFileTTF(fontPath, 20.0f, &cfg);
+            io.FontDefault = bodyFont;
         } else {
-            // Fallback: default font at larger sizes (still better than scaling)
-            cfg.SizePixels = 48.0f;
-            titleFont = io.Fonts->AddFontDefault(&cfg);
-            cfg.SizePixels = 32.0f;
-            headingFont = io.Fonts->AddFontDefault(&cfg);
-            cfg.SizePixels = 20.0f;
-            bodyFont = io.Fonts->AddFontDefault(&cfg);
+            io.Fonts->AddFontDefault();
+            cfg.SizePixels = 48.0f; titleFont = io.Fonts->AddFontDefault(&cfg);
+            cfg.SizePixels = 32.0f; headingFont = io.Fonts->AddFontDefault(&cfg);
+            cfg.SizePixels = 20.0f; bodyFont = io.Fonts->AddFontDefault(&cfg);
         }
 
-        // Rebuild the font atlas texture
         io.Fonts->Build();
         ImGui_ImplOpenGL3_DestroyFontsTexture();
         ImGui_ImplOpenGL3_CreateFontsTexture();
@@ -554,68 +538,43 @@ class Menustate : public our::State
         loadPresetsFromConfig();
         currentScreen = MenuScreen::MAIN_MENU;
 
-        // First, we create a material for the menu's background
         menuMaterial = new our::TexturedMaterial();
-        // Here, we load the shader that will be used to draw the background
         menuMaterial->shader = new our::ShaderProgram();
         menuMaterial->shader->attach("assets/shaders/textured.vert", GL_VERTEX_SHADER);
         menuMaterial->shader->attach("assets/shaders/textured.frag", GL_FRAGMENT_SHADER);
         menuMaterial->shader->link();
-        // Then we load the menu texture
         menuMaterial->texture = our::texture_utils::loadImage("assets/textures/background.png");
-        // Initially, the menu material will be black, then it will fade in
         menuMaterial->tint = glm::vec4(0.0f, 0.0f, 0.0f, 0.0f);
 
-        // Second, we create a material to highlight the hovered buttons
         highlightMaterial = new our::TintedMaterial();
-        // Since the highlight is not textured, we used the tinted material shaders
         highlightMaterial->shader = new our::ShaderProgram();
         highlightMaterial->shader->attach("assets/shaders/tinted.vert", GL_VERTEX_SHADER);
         highlightMaterial->shader->attach("assets/shaders/tinted.frag", GL_FRAGMENT_SHADER);
         highlightMaterial->shader->link();
-        // The tint is white since we will subtract the background color from it to create a negative effect.
         highlightMaterial->tint = glm::vec4(1.0f, 1.0f, 1.0f, 1.0f);
-        // To create a negative effect, we enable blending, set the equation to be subtract,
-        // and set the factors to be one for both the source and the destination.
         highlightMaterial->pipelineState.blending.enabled = true;
         highlightMaterial->pipelineState.blending.equation = GL_FUNC_SUBTRACT;
         highlightMaterial->pipelineState.blending.sourceFactor = GL_ONE;
         highlightMaterial->pipelineState.blending.destinationFactor = GL_ONE;
 
-        // Then we create a rectangle whose top-left corner is at the origin and its size is 1x1.
-        // Note that the texture coordinates at the origin is (0.0, 1.0) since we will use the
-        // projection matrix to make the origin at the the top-left corner of the screen.
         rectangle = new our::Mesh({
                                       {{0.0f, 0.0f, 0.0f}, {255, 255, 255, 255}, {0.0f, 1.0f}, {0.0f, 0.0f, 1.0f}},
                                       {{1.0f, 0.0f, 0.0f}, {255, 255, 255, 255}, {1.0f, 1.0f}, {0.0f, 0.0f, 1.0f}},
                                       {{1.0f, 1.0f, 0.0f}, {255, 255, 255, 255}, {1.0f, 0.0f}, {0.0f, 0.0f, 1.0f}},
                                       {{0.0f, 1.0f, 0.0f}, {255, 255, 255, 255}, {0.0f, 0.0f}, {0.0f, 0.0f, 1.0f}},
                                   },
-                                  {
-                                      0,
-                                      1,
-                                      2,
-                                      2,
-                                      3,
-                                      0,
-                                  });
+                                  {0, 1, 2, 2, 3, 0});
 
-        // Reset the time elapsed since the state is entered.
         time = 0;
 
-        // Fill the positions, sizes and actions for the menu buttons
-        // Note that we use lambda expressions to set the actions of the buttons.
         buttons[0].position = {830.0f, 607.0f};
         buttons[0].size = {400.0f, 33.0f};
-        buttons[0].action = [this]()
-        { this->getApp()->changeState("play"); };
+        buttons[0].action = [this]() { this->getApp()->changeState("play"); };
 
         buttons[1].position = {830.0f, 644.0f};
         buttons[1].size = {400.0f, 33.0f};
-        buttons[1].action = [this]()
-        { this->getApp()->close(); };
+        buttons[1].action = [this]() { this->getApp()->close(); };
 
-        // Initialize Audio Engine and start music
         if (ma_engine_init(NULL, &audioEngine) == MA_SUCCESS) {
             isAudioInitialized = true;
             if (ma_sound_init_from_file(&audioEngine, "assets/audio/01. Ground Theme.mp3", 0, NULL, NULL, &menuMusic) == MA_SUCCESS) {
@@ -628,58 +587,90 @@ class Menustate : public our::State
 
     void onImmediateGui() override
     {
-        // Disable imgui.ini saving so windows don't remember position
         ImGui::GetIO().IniFilename = nullptr;
-
         switch (currentScreen)
         {
-        case MenuScreen::MAIN_MENU:
-            renderMainMenu();
-            break;
-        case MenuScreen::TRACK_SELECT:
-            renderTrackSelect();
-            break;
-        case MenuScreen::CAR_SELECT:
-            renderCarSelect();
-            break;
+        case MenuScreen::MAIN_MENU: renderMainMenu(); break;
+        case MenuScreen::TRACK_SELECT: renderTrackSelect(); break;
+        case MenuScreen::CAR_SELECT: renderCarSelect(); break;
         }
     }
 
     void onDraw(double deltaTime) override
     {
-        // Get a reference to the keyboard object
         auto &keyboard = getApp()->getKeyboard();
-
-        if (keyboard.justPressed(GLFW_KEY_ESCAPE))
+        int itemCount = 0;
+        switch (currentScreen)
         {
-            if (currentScreen == MenuScreen::CAR_SELECT)
-            {
-                currentScreen = MenuScreen::TRACK_SELECT;
-            }
-            else if (currentScreen == MenuScreen::TRACK_SELECT)
-            {
-                currentScreen = MenuScreen::MAIN_MENU;
-            }
-            else
-            {
-                getApp()->close();
+        case MenuScreen::MAIN_MENU: itemCount = 2; break;
+        case MenuScreen::TRACK_SELECT: itemCount = 2 + NUM_TRACK_PRESETS; break;
+        case MenuScreen::CAR_SELECT: itemCount = 2 + NUM_CAR_PRESETS; break;
+        }
+
+        int presetsCount = (currentScreen == MenuScreen::TRACK_SELECT) ? NUM_TRACK_PRESETS : NUM_CAR_PRESETS;
+        bool isSpecialScreen = (currentScreen == MenuScreen::TRACK_SELECT || currentScreen == MenuScreen::CAR_SELECT);
+
+        if (keyboard.justPressed(GLFW_KEY_DOWN) || keyboard.justPressed(GLFW_KEY_UP)) {
+            bool down = keyboard.justPressed(GLFW_KEY_DOWN);
+            keyboardNavActive = true;
+            if (currentScreen == MenuScreen::MAIN_MENU) {
+                if ((down && selectedIndex < itemCount - 1) || (!down && selectedIndex > 0))
+                    selectedIndex += down ? 1 : -1;
+            } else if (isSpecialScreen) {
+                if (down && selectedIndex < presetsCount) selectedIndex = presetsCount;
+                else if (!down && selectedIndex >= presetsCount) selectedIndex = 0;
             }
         }
 
-        // Get the framebuffer size to set the viewport and the create the projection matrix.
-        glm::ivec2 size = getApp()->getFrameBufferSize();
-        // Make sure the viewport covers the whole size of the framebuffer.
-        glViewport(0, 0, size.x, size.y);
+        if (isSpecialScreen && (keyboard.justPressed(GLFW_KEY_RIGHT) || keyboard.justPressed(GLFW_KEY_LEFT))) {
+            bool right = keyboard.justPressed(GLFW_KEY_RIGHT);
+            int start = (selectedIndex < presetsCount) ? 0 : presetsCount;
+            int end = (selectedIndex < presetsCount) ? presetsCount : itemCount;
+            int size = end - start;
+            if ((right && selectedIndex < end - 1) || (!right && selectedIndex > start)) {
+                keyboardNavActive = true;
+                selectedIndex = start + (selectedIndex - start + (right ? 1 : -1 + size)) % size;
+            }
+        }
 
-        // The view matrix is an identity (there is no camera that moves around).
-        // The projection matrix applys an orthographic projection whose size is the framebuffer size in pixels
-        glm::mat4 VP = glm::ortho(0.0f, (float)size.x, (float)size.y, 0.0f, 1.0f, -1.0f);
-        glm::mat4 M = glm::scale(glm::mat4(1.0f), glm::vec3(size.x, size.y, 1.0f));
+        if (keyboard.justPressed(GLFW_KEY_ENTER) || keyboard.justPressed(GLFW_KEY_SPACE))
+        {
+            keyboardNavActive = true;
+            switch (currentScreen)
+            {
+            case MenuScreen::MAIN_MENU:
+                if (selectedIndex == 0) { currentScreen = MenuScreen::TRACK_SELECT; selectedIndex = 0; }
+                else if (selectedIndex == 1) getApp()->close();
+                break;
+            case MenuScreen::TRACK_SELECT:
+                if (selectedIndex == 0) { selectedTrackIndex = 0; if (!trackPresetIds.empty()) getApp()->setSelectedTrackPreset(trackPresetIds[0]); }
+                else if (selectedIndex == 1) { selectedTrackIndex = 1; if (trackPresetIds.size() > 1) getApp()->setSelectedTrackPreset(trackPresetIds[1]); }
+                else if (selectedIndex == 2) { currentScreen = MenuScreen::MAIN_MENU; selectedIndex = 0; }
+                else if (selectedIndex == 3) { currentScreen = MenuScreen::CAR_SELECT; selectedIndex = 0; }
+                break;
+            case MenuScreen::CAR_SELECT:
+                if (selectedIndex == 0) { selectedCarIndex = 0; if (!carPresetIds.empty()) getApp()->setSelectedCarPreset(carPresetIds[0]); }
+                else if (selectedIndex == 1) { selectedCarIndex = 1; if (carPresetIds.size() > 1) getApp()->setSelectedCarPreset(carPresetIds[1]); }
+                else if (selectedIndex == 2) { currentScreen = MenuScreen::TRACK_SELECT; selectedIndex = 0; }
+                else if (selectedIndex == 3) getApp()->changeState("play");
+                break;
+            }
+        }
 
-        // First, we apply the fading effect.
+        if (keyboard.justPressed(GLFW_KEY_ESCAPE))
+        {
+            if (currentScreen == MenuScreen::CAR_SELECT) currentScreen = MenuScreen::TRACK_SELECT;
+            else if (currentScreen == MenuScreen::TRACK_SELECT) currentScreen = MenuScreen::MAIN_MENU;
+            else getApp()->close();
+        }
+
+        glm::ivec2 fSize = getApp()->getFrameBufferSize();
+        glViewport(0, 0, fSize.x, fSize.y);
+        glm::mat4 VP = glm::ortho(0.0f, (float)fSize.x, (float)fSize.y, 0.0f, 1.0f, -1.0f);
+        glm::mat4 M = glm::scale(glm::mat4(1.0f), glm::vec3(fSize.x, fSize.y, 1.0f));
+
         time += (float)deltaTime;
         menuMaterial->tint = glm::vec4(glm::smoothstep(0.00f, 2.00f, time));
-        // Then we render the menu background
         menuMaterial->setup();
         menuMaterial->shader->set("transform", VP * M);
         rectangle->draw();
@@ -687,7 +678,6 @@ class Menustate : public our::State
 
     void onDestroy() override
     {
-        // Delete all the allocated resources
         delete rectangle;
         delete menuMaterial->texture;
         delete menuMaterial->shader;
@@ -695,13 +685,7 @@ class Menustate : public our::State
         delete highlightMaterial->shader;
         delete highlightMaterial;
 
-        if (isMusicLoaded) {
-            ma_sound_uninit(&menuMusic);
-            isMusicLoaded = false;
-        }
-        if (isAudioInitialized) {
-            ma_engine_uninit(&audioEngine);
-            isAudioInitialized = false;
-        }
+        if (isMusicLoaded) { ma_sound_uninit(&menuMusic); isMusicLoaded = false; }
+        if (isAudioInitialized) { ma_engine_uninit(&audioEngine); isAudioInitialized = false; }
     }
 };
