@@ -31,10 +31,20 @@ class ShaderTestState: public our::State {
                     int value = uniform.value("value", 0);
                     shader->set(name, value);
                 } else if(type == "vec2"){
-                    glm::vec2 value = uniform.value("value", glm::vec2(0,0));
+                    auto readVec2 = [](const nlohmann::json& value, const glm::vec2& fallback){
+                        if(!value.is_array() || value.size() < 2) return fallback;
+                        return glm::vec2(value[0].get<float>(), value[1].get<float>());
+                    };
+
+                    glm::vec2 value = readVec2(uniform.value("value", nlohmann::json::array()), glm::vec2(0,0));
                     shader->set(name, value);
                 } else if(type == "vec3"){
-                    glm::vec3 value = uniform.value("value", glm::vec3(0,0,0));
+                    auto readVec3 = [](const nlohmann::json& value, const glm::vec3& fallback){
+                        if(!value.is_array() || value.size() < 3) return fallback;
+                        return glm::vec3(value[0].get<float>(), value[1].get<float>(), value[2].get<float>());
+                    };
+
+                    glm::vec3 value = readVec3(uniform.value("value", nlohmann::json::array()), glm::vec3(0,0,0));
                     shader->set(name, value);
                 } else if(type == "vec4"){
                     glm::vec4 value = uniform.value("value", glm::vec4(0,0,0,0));

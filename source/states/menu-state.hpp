@@ -17,8 +17,8 @@
 #include <vector>
 #include <cstdio>
 
-#define NUM_TRACK_PRESETS 2
-#define NUM_CAR_PRESETS 2
+#define NUM_TRACK_PRESETS 3
+#define NUM_CAR_PRESETS 3
 
 struct Button
 {
@@ -279,9 +279,8 @@ class Menustate : public our::State
             if(bodyFont) ImGui::PushFont(bodyFont);
             ImGui::Dummy(ImVec2(0, 30));
 
-            const char *trackNames[] = {"Montreal", "Silverstone"};
             const int trackCount = (int)trackPresetIds.size();
-            const int displayCount = std::min(trackCount, 2);
+            const int displayCount = std::min(trackCount, NUM_TRACK_PRESETS);
 
             float cardW = 280.0f;
             float cardH = 120.0f;
@@ -296,7 +295,7 @@ class Menustate : public our::State
 
                 bool isSelected = (selectedTrackIndex == i);
                 bool isKeyboardSelected = keyboardNavActive && (selectedIndex == i);
-                const char *name = (i < 2) ? trackNames[i] : trackPresetLabels[i].c_str();
+                const char *name = trackPresetLabels[i].c_str();
 
                 if (isSelected || isKeyboardSelected)
                 {
@@ -395,9 +394,8 @@ class Menustate : public our::State
             if(bodyFont) ImGui::PushFont(bodyFont);
             ImGui::Dummy(ImVec2(0, 30));
 
-            const char *carNames[] = {"New Ferrari", "Old Ferrari"};
             const int carCount = (int)carPresetIds.size();
-            const int displayCount = std::min(carCount, 2);
+            const int displayCount = std::min(carCount, NUM_CAR_PRESETS);
 
             float cardW = 280.0f;
             float cardH = 120.0f;
@@ -412,7 +410,7 @@ class Menustate : public our::State
 
                 bool isSelected = (selectedCarIndex == i);
                 bool isKeyboardSelected = keyboardNavActive && (selectedIndex == i);
-                const char *name = (i < 2) ? carNames[i] : carPresetLabels[i].c_str();
+                const char *name = carPresetLabels[i].c_str();
 
                 if (isSelected || isKeyboardSelected)
                 {
@@ -645,14 +643,16 @@ class Menustate : public our::State
             case MenuScreen::TRACK_SELECT:
                 if (selectedIndex == 0) { selectedTrackIndex = 0; if (!trackPresetIds.empty()) getApp()->setSelectedTrackPreset(trackPresetIds[0]); }
                 else if (selectedIndex == 1) { selectedTrackIndex = 1; if (trackPresetIds.size() > 1) getApp()->setSelectedTrackPreset(trackPresetIds[1]); }
-                else if (selectedIndex == 2) { currentScreen = MenuScreen::MAIN_MENU; selectedIndex = 0; }
-                else if (selectedIndex == 3) { currentScreen = MenuScreen::CAR_SELECT; selectedIndex = 0; }
+                else if (selectedIndex == 2) { selectedTrackIndex = 2; if (trackPresetIds.size() > 2) getApp()->setSelectedTrackPreset(trackPresetIds[2]); }
+                else if (selectedIndex == 3) { currentScreen = MenuScreen::MAIN_MENU; selectedIndex = 0; }
+                else if (selectedIndex == 4) { currentScreen = MenuScreen::CAR_SELECT; selectedIndex = 0; }
                 break;
             case MenuScreen::CAR_SELECT:
                 if (selectedIndex == 0) { selectedCarIndex = 0; if (!carPresetIds.empty()) getApp()->setSelectedCarPreset(carPresetIds[0]); }
                 else if (selectedIndex == 1) { selectedCarIndex = 1; if (carPresetIds.size() > 1) getApp()->setSelectedCarPreset(carPresetIds[1]); }
-                else if (selectedIndex == 2) { currentScreen = MenuScreen::TRACK_SELECT; selectedIndex = 0; }
-                else if (selectedIndex == 3) getApp()->changeState("play");
+                else if (selectedIndex == 2) { selectedCarIndex = 2; if (carPresetIds.size() > 2) getApp()->setSelectedCarPreset(carPresetIds[2]); }
+                else if (selectedIndex == 3) { currentScreen = MenuScreen::TRACK_SELECT; selectedIndex = 0; }
+                else if (selectedIndex == 4) getApp()->changeState("play");
                 break;
             }
         }

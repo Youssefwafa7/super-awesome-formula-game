@@ -44,18 +44,23 @@ class TransformTestState: public our::State {
         // Then we read the camera information to compute the VP matrix
         if(config.contains("camera")){
             if(auto& camera = config["camera"]; camera.is_object()){
-                glm::vec3 eye = camera.value("eye", glm::vec3(0, 0, 0));
-                glm::vec3 center = camera.value("center", glm::vec3(0, 0, -1));
-                glm::vec3 up = camera.value("up", glm::vec3(0, 1, 0));
+                auto readVec3 = [](const nlohmann::json& value, const glm::vec3& fallback){
+                    if(!value.is_array() || value.size() < 3) return fallback;
+                    return glm::vec3(value[0].get<float>(), value[1].get<float>(), value[2].get<float>());
+                };
+
+                glm::vec3 eye = readVec3(camera.value("eye", nlohmann::json::array()), glm::vec3(0, 0, 0));
+                glm::vec3 center = readVec3(camera.value("center", nlohmann::json::array()), glm::vec3(0, 0, -1));
+                glm::vec3 up = readVec3(camera.value("up", nlohmann::json::array()), glm::vec3(0, 1, 0));
                 glm::mat4 V = glm::lookAt(eye, center, up);
 
                 float fov = glm::radians(camera.value("fov", 90.0f));
-                float near = camera.value("near", 0.01f);
-                float far = camera.value("far", 1000.0f);
+                float nearPlane = camera.value("near", 0.01f);
+                float farPlane = camera.value("far", 1000.0f);
 
                 glm::ivec2 size = getApp()->getFrameBufferSize();
                 float aspect = float(size.x)/size.y;
-                glm::mat4 P = glm::perspective(fov, aspect, near, far);
+                glm::mat4 P = glm::perspective(fov, aspect, nearPlane, farPlane);
 
                 VP = P * V;
             }
