@@ -3,10 +3,10 @@
   "window": {
     "title": "Super Awesome Formula Game",
     "size": {
-      "width": 1280,
-      "height": 720
+      "width": 1920,
+      "height": 1080
     },
-    "fullscreen": false
+    "fullscreen": true
   },
   "scene": {
     "renderer": {
@@ -218,7 +218,7 @@
             "components": [
               {
                 "type": "Track Heightfield",
-                "model": "assets/models/race_trackkarting_track_based_on_south_garda/scene.gltf",
+                "model": "assets/models/test-sarda/race_trackkarting_track_based_on_south_garda.gltf",
                 "cellSize": 0.2,
                 "minNormalY": 0.6,
                 "hardWallNormalY": 0.12,
@@ -256,7 +256,7 @@
               {
                 "type": "Multi Mesh Renderer",
                 "mergeByMaterial": true,
-                "model": "assets/models/race_trackkarting_track_based_on_south_garda/scene.gltf",
+                "model": "assets/models/test-sarda/race_trackkarting_track_based_on_south_garda.gltf",
                 "shader": "lit",
                 "sampler": "default",
                 "debugPrintParts": false,

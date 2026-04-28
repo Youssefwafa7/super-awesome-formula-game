@@ -44,7 +44,7 @@ set(IMGUI_SOURCES
         )
 
 # Combine all vendor source files together into a single variable
-set(VENDOR_SOURCES ${GLAD_SOURCE} ${IMGUI_SOURCES})
+set(VENDOR_SOURCES ${GLAD_SOURCE} ${IMGUI_SOURCES} vendor/miniaudio/miniaudio.cpp)
 
 # A variable with all our source files that are common between executable targets (examples)
 set(COMMON_SOURCES
@@ -125,6 +125,7 @@ include_directories(
         vendor/glm
         vendor/imgui
         vendor/utils
+        vendor/miniaudio
 )
 
 

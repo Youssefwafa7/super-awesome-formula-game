@@ -14,9 +14,11 @@
 #include <components/camera.hpp>
 #include <components/car-controller.hpp>
 #include <components/track-heightfield.hpp>
+#include "miniaudio.h"
 
 #include <algorithm>
 #include <cmath>
+#include <cstdlib>
 #include <string>
 
 // This state shows how to use the ECS framework and deserialization.
@@ -47,6 +49,16 @@ class Playstate: public our::State {
     };
 
     bool freeRoaming = false;
+
+    // ── Audio ──
+    ma_engine audioEngine;
+    ma_sound playMusic;
+    bool isAudioInitialized = false;
+    bool isMusicLoaded = false;
+
+    // ── Countdown Timer ──
+    float countdownTimer = 5.0f;  // 5 second countdown at start
+    bool isRaceStarted = false;
 
     static our::Entity* findEntityByName(our::World& world, const std::string& name){
         for(auto* e : world.getEntities()){
@@ -320,9 +332,34 @@ class Playstate: public our::State {
         // Then we initialize the renderer
         auto size = getApp()->getFrameBufferSize();
         renderer.initialize(size, config["renderer"]);
+
+        // Initialize Audio Engine and start music
+        if (ma_engine_init(NULL, &audioEngine) == MA_SUCCESS) {
+            isAudioInitialized = true;
+            if (ma_sound_init_from_file(&audioEngine, "assets/audio/17. Into the Pipe (Hurry Up!).mp3", 0, NULL, NULL, &playMusic) == MA_SUCCESS) {
+                isMusicLoaded = true;
+                ma_sound_set_looping(&playMusic, MA_FALSE);
+                // Play only 5 seconds of audio at the start
+                ma_sound_set_stop_time_in_milliseconds(&playMusic, 4000);
+                ma_sound_start(&playMusic);
+            }
+        }
+        
+        // Reset countdown timer when entering the play state
+        countdownTimer = 5.0f;
+        isRaceStarted = false;
     }
 
     void onDraw(double deltaTime) override {
+        // Update countdown timer
+        if (!isRaceStarted) {
+            countdownTimer -= (float)deltaTime;
+            if (countdownTimer <= 0.0f) {
+                countdownTimer = 0.0f;
+                isRaceStarted = true;
+            }
+        }
+
         // Here, we just run a bunch of systems to control the world logic
         movementSystem.update(&world, (float)deltaTime);
         
@@ -341,8 +378,13 @@ class Playstate: public our::State {
             }
         }
 
-        if(!freeRoaming){
+        // Only allow car movement after countdown is finished
+        if(!freeRoaming && isRaceStarted){
             carControllerSystem.update(&world, (float)deltaTime);
+        }
+        
+        // Always update chase camera so it follows the car from the start
+        if(!freeRoaming){
             chaseCameraSystem.update(&world, (float)deltaTime);
         }
         
@@ -443,6 +485,28 @@ class Playstate: public our::State {
             ImGui::End();
         }
 
+        // Countdown timer display
+        if (!isRaceStarted) {
+            const ImVec2 display = ImGui::GetIO().DisplaySize;
+            
+            ImGui::SetNextWindowPos(ImVec2(display.x * 0.5f, display.y * 0.4f), ImGuiCond_Always);
+            ImGui::SetNextWindowBgAlpha(0.0f);
+            
+            ImGuiWindowFlags countFlags = 0;
+            countFlags |= ImGuiWindowFlags_NoDecoration;
+            countFlags |= ImGuiWindowFlags_AlwaysAutoResize;
+            countFlags |= ImGuiWindowFlags_NoSavedSettings;
+            countFlags |= ImGuiWindowFlags_NoFocusOnAppearing;
+            countFlags |= ImGuiWindowFlags_NoNav;
+
+            if (ImGui::Begin("Countdown", nullptr, countFlags)) {
+                int seconds = (int)std::ceil(countdownTimer);
+                ImGui::SetWindowFontScale(4.0f);
+                ImGui::TextColored(ImVec4(1.0f, 0.2f, 0.2f, 1.0f), "%d", seconds);
+            }
+            ImGui::End();
+        }
+
         // Top-right collision debug HUD.
         {
             const ImVec2 display = ImGui::GetIO().DisplaySize;
@@ -485,5 +549,14 @@ class Playstate: public our::State {
         world.clear();
         // and we delete all the loaded assets to free memory on the RAM and the VRAM
         our::clearAllAssets();
+
+        if (isMusicLoaded) {
+            ma_sound_uninit(&playMusic);
+            isMusicLoaded = false;
+        }
+        if (isAudioInitialized) {
+            ma_engine_uninit(&audioEngine);
+            isAudioInitialized = false;
+        }
     }
 };
