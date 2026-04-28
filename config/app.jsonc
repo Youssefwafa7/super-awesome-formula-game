@@ -41,8 +41,9 @@
         }
       },
       "meshes": {
-        "standard_kart": "assets/models/standard_kart/standard_kart.obj",
-        "boom_karts_kart": "assets/models/boom_karts_kart/boom_karts_kart.obj"
+        // "new_ferrari": "assets/models/1991_f1_car/1991.gltf",
+        "standard_kart": "assets/models/standard_kart_gltf/scene.gltf",
+        "old_ferrari": "assets/models/Cartoon_Formula_1975/Cartoon_Formula_1975.gltf"
       },
       "samplers": {
         "default": {
@@ -58,7 +59,9 @@
     // Default selection (used on launch; the menu lets you change these).
     "selection": {
       "car": "standard_kart",
+      // "car": "old_ferrari",
       "track": "race_trackkarting_track_based_on_south_garda"
+      // "track": "montreal"
     },
 
     // Presets for cars and tracks.
@@ -67,7 +70,88 @@
       "cars": [
         // Car preset: Standard Kart
         // OBJ size is ~14.6 units long, so we scale it down to ~1.5 world units.
-        {
+        // {
+        //   "id": "new_ferrari",
+        //   "label": "New Ferrari",
+        //   "entity": {
+        //     "name": "player",
+        //     "position": [0.0, 0.0, 0.0],
+        //     "rotation": [0, 90, 0],
+        //     "scale": [0.2, 0.2, 0.2],
+        //     "components": [
+        //       {
+        //         "type": "Light",
+        //         "lightType": "spot",
+        //         "color": [1.0, 1.0, 1.0],
+        //         "intensity": 30.0,
+        //         "attenuation": [1.0, 0.03, 0.002],
+        //         "innerAngle": 12.0,
+        //         "outerAngle": 22.0,
+        //         "positionOffset": [0.0, 0.35, 8.0],
+        //         "invertDirection": true
+        //       },
+        //       {
+        //         "type": "Car Controller",
+        //         "acceleration": 14.0,
+        //         "brakeAcceleration": 20.0,
+        //         "maxSpeed": 20.0,
+        //         "maxReverseSpeed": 7.0,
+        //         "turnSpeed": 2.2,
+        //         "linearDamping": 4.0,
+        //         "grassSpeedFactor": 0.7,
+        //         "grassDamping": 3.8,
+        //         "grassTurnFactor": 0.60,
+        //         "grassAccelFactor": 0.60,
+        //         "wallBounceDamping": 0.32,
+        //         "collisionSubstepDistance": 0.12,
+        //         "collisionRadius": 0.13,
+        //         "wallPushback": 0.004,
+        //         "wallResolveIterations": 4,
+        //         "maxClimbHeight": 0.22,
+        //         "wheelSteerMaxAngle": 30.0,
+        //         "groundClearance": 0.12
+        //       },
+        //       {
+        //         "type": "Multi Mesh Renderer",
+        //         "mesh": "new_ferrari",
+        //         "shader": "lit",
+        //         "sampler": "default",
+        //         "pipelineState": {
+        //           "faceCulling": { "enabled": false },
+        //           "depthTesting": { "enabled": true }
+        //         },
+        //         "tint": [1, 1, 1, 1]
+        //       },
+        //       {
+        //         "type": "Car Rig",
+        //         "spinAxis": "x",
+        //         "spinDirection": 1.0,
+        //         "debugPrint": false,
+        //         "wheels": [
+        //             {
+        //               "label": "front_left",
+        //               "steerNode": "rim_lf_LOD0",
+        //               "spinNodes": ["rim_lf_LOD0"]
+        //             },
+        //             {
+        //               "label": "front_right",
+        //               "steerNode": "rim_rf_LOD0",
+        //               "spinNodes": ["rim_rf_LOD0"]
+        //             },
+        //             {
+        //               "label": "rear_left",
+        //               "spinNodes": ["rim_lr_LOD0"]
+        //             },
+        //             {
+        //               "label": "rear_right",
+        //               "spinNodes": ["rim_rr_LOD0"]
+        //             }
+        //         ]
+        //       }
+        //     ]
+        //   }
+        // },
+{
           "id": "standard_kart",
           "label": "Standard Kart",
           "entity": {
@@ -111,6 +195,7 @@
               {
                 "type": "Multi Mesh Renderer",
                 "mesh": "standard_kart",
+                "preserveHierarchy": true,
                 "shader": "lit",
                 "sampler": "default",
                 "pipelineState": {
@@ -120,28 +205,25 @@
                 "tint": [1, 1, 1, 1]
               },
               {
-                "type": "Wheel Spin",
-                "axis": "auto",
-                "direction": 1.0,
-                "desiredWheelCount": 4,
-                "includeNameSubstrings": ["wheel", "tire", "tyre", "rim"],
-                "excludeNameSubstrings": ["body", "chassis"],
-                "debugPrintParts": false
+                "type": "Car Rig",
+                "spinAxis": 0,
+                "spinDirection": 1.0,
+                "debugPrint": true,
+                "wheels": []
               }
             ]
           }
         },
-
         // Car preset: Boom Karts Kart
         // This OBJ is extremely tiny in its authoring units, so it needs a large scale.
         {
-          "id": "boom_karts_kart",
-          "label": "Boom Karts Kart",
+          "id": "old_ferrari",
+          "label": "Old Ferrari",
           "entity": {
             "name": "player",
             "position": [0.0, 0.0, 0.0],
             "rotation": [0, 90, 0],
-            "scale": [70.0, 70.0, 70.0],
+            "scale": [0.7, 0.7, 0.7],
             "components": [
               {
                 "type": "Light",
@@ -177,8 +259,9 @@
               },
               {
                 "type": "Multi Mesh Renderer",
-                "mesh": "boom_karts_kart",
-                "recenterToOrigin": true,
+                "mesh": "old_ferrari",
+                "recenterToOrigin": false,
+                "preserveHierarchy": true,
                 "shader": "lit",
                 "sampler": "default",
                 "pipelineState": {
@@ -188,13 +271,30 @@
                 "tint": [1, 1, 1, 1]
               },
               {
-                "type": "Wheel Spin",
-                "axis": "auto",
-                "direction": 1.0,
-                "desiredWheelCount": 4,
-                "includeNameSubstrings": ["wheel", "tire", "tyre", "rim"],
-                "excludeNameSubstrings": ["body", "chassis"],
-                "debugPrintParts": false
+                "type": "Car Rig",
+                "spinAxis": "x",
+                "spinDirection": 1.0,
+                "debugPrint": false,
+                "wheels": [
+                  {
+                    "label": "front_left",
+                    "steerNode": "hub_lf_LOD0",
+                    "spinNodes": ["rim_lf_LOD0"]
+                  },
+                  {
+                    "label": "front_right",
+                    "steerNode": "hub_rf_LOD0",
+                    "spinNodes": ["rim_rf_LOD0"]
+                  },
+                  {
+                    "label": "rear_left",
+                    "spinNodes": ["rim_rl", "tyre_rl"]
+                  },
+                  {
+                    "label": "rear_right",
+                    "spinNodes": ["rim_rr", "tyre_rr"]
+                  }
+                ]
               }
             ]
           }
@@ -203,7 +303,7 @@
 
       "tracks": [
         // Track preset: South Garda Karting
-        {
+       {
           "id": "south_garda",
           "label": "South Garda Karting",
           "spawn": {
@@ -271,17 +371,17 @@
         // Track preset: Mini Silverstone
         {
           "id": "mini_silverstone",
-          "label": "Mini Silverstone",
+          "label": "Silverstone",
           "spawn": {
             // Spawn on the start/finish area (world coordinates).
-            "position": [100.10, -0.42, 1.29],
-            "rotation": [0, 70.8, 0]
+            "position": [-357.93, 0.68, -91],
+            "rotation": [0, 170, 0]
           },
           "entity": {
             "name": "track",
             "position": [0.0, 0.0, 0.0],
             "rotation": [0, 0, 0],
-            "scale": [0.5, 0.5, 0.5],
+            "scale": [1.0, 1.0, 1.0],
             "components": [
               {
                 "type": "Track Heightfield",

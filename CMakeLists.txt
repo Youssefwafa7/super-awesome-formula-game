@@ -102,8 +102,8 @@ set(COMMON_SOURCES
         source/common/components/free-camera-controller.cpp
         source/common/components/movement.hpp
         source/common/components/movement.cpp
-        source/common/components/wheel-spin.hpp
-        source/common/components/wheel-spin.cpp
+        source/common/components/car-rig.hpp
+        source/common/components/car-rig.cpp
         source/common/components/light.hpp
         source/common/components/light.cpp
         source/common/components/component-deserializer.hpp
@@ -114,7 +114,7 @@ set(COMMON_SOURCES
         source/common/systems/movement.hpp
         source/common/systems/car-controller.hpp
         source/common/systems/chase-camera.hpp
-        source/common/systems/wheel-spin.hpp
+        source/common/systems/car-rig.hpp
 )
 
 # Define the directories in which to search for the included headers

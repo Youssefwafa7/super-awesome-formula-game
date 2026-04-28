@@ -261,17 +261,41 @@ namespace our {
 
             // If this entity has a multi-mesh renderer component
             if(auto multi = entity->getComponent<MultiMeshRendererComponent>(); multi){
-                for(const auto& part : multi->parts){
-                    if(part.mesh == nullptr || part.material == nullptr) continue;
-                    RenderCommand command;
-                    command.localToWorld = multi->getOwner()->getLocalToWorldMatrix() * part.localTransform.toMat4();
-                    command.center = glm::vec3(command.localToWorld * glm::vec4(0, 0, 0, 1));
-                    command.mesh = part.mesh;
-                    command.material = part.material;
-                    if(command.material->transparent){
-                        transparentCommands.push_back(command);
-                    } else {
-                        opaqueCommands.push_back(command);
+                if(multi->preserveHierarchy && multi->rootNode){
+                    std::function<void(MultiMeshRendererComponent::Node*, const glm::mat4&)> drawNode = [&](MultiMeshRendererComponent::Node* node, const glm::mat4& parentTransform){
+                        glm::mat4 nodeWorld = parentTransform * node->localTransform.toMat4();
+                        for(int idx : node->partIndices){
+                            if(idx < 0 || idx >= (int)multi->parts.size()) continue;
+                            const auto& part = multi->parts[idx];
+                            if(part.mesh == nullptr || part.material == nullptr) continue;
+                            RenderCommand command;
+                            // part.localTransform only contains center pivot if recenterToOrigin is used
+                            command.localToWorld = nodeWorld * part.localTransform.toMat4();
+                            command.center = glm::vec3(command.localToWorld * glm::vec4(0, 0, 0, 1));
+                            command.mesh = part.mesh;
+                            command.material = part.material;
+                            if(command.material->transparent){
+                                transparentCommands.push_back(command);
+                            } else {
+                                opaqueCommands.push_back(command);
+                            }
+                        }
+                        for(auto* c : node->children) drawNode(c, nodeWorld);
+                    };
+                    drawNode(multi->rootNode, multi->getOwner()->getLocalToWorldMatrix());
+                } else {
+                    for(const auto& part : multi->parts){
+                        if(part.mesh == nullptr || part.material == nullptr) continue;
+                        RenderCommand command;
+                        command.localToWorld = multi->getOwner()->getLocalToWorldMatrix() * part.localTransform.toMat4();
+                        command.center = glm::vec3(command.localToWorld * glm::vec4(0, 0, 0, 1));
+                        command.mesh = part.mesh;
+                        command.material = part.material;
+                        if(command.material->transparent){
+                            transparentCommands.push_back(command);
+                        } else {
+                            opaqueCommands.push_back(command);
+                        }
                     }
                 }
             }

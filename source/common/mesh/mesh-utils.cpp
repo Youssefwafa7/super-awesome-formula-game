@@ -10,6 +10,7 @@
 #include <unordered_map>
 #include <filesystem>
 #include <glm/gtc/type_ptr.hpp>
+#include <glm/gtx/euler_angles.hpp>
 #include <algorithm>
 #include <limits>
 
@@ -24,6 +25,7 @@ namespace {
         SubMeshBuild build;
         std::string objectName;
         int materialId = -1;
+        int finalIndex = -1;
     };
 
     static std::string toLower(const std::string& s){
@@ -129,26 +131,55 @@ our::Mesh* our::mesh_utils::loadModel(const std::string& filename) {
     return new our::Mesh(vertices, elements);
 }
 
-static void ProcessNode(aiNode* node, const aiScene* scene, const glm::mat4& parentTransform, std::unordered_map<std::string, SubMeshEntry>& builds, bool mergeByMaterial) {
+static our::mesh_utils::ModelNode* ProcessNode(aiNode* node, const aiScene* scene, const glm::mat4& parentTransform, std::unordered_map<std::string, SubMeshEntry>& builds, bool mergeByMaterial, bool preserveHierarchy, int& nextUniqueId, std::unordered_map<our::mesh_utils::ModelNode*, std::vector<std::string>>& nodeBuildKeys) {
     // Note: GLM is column-major, Assimp is row-major, so we transpose
     glm::mat4 nodeTransform = glm::transpose(glm::make_mat4(&node->mTransformation.a1));
 
     glm::mat4 globalTransform = parentTransform * nodeTransform;
+    glm::mat4 transformToApply = preserveHierarchy ? glm::mat4(1.0f) : globalTransform;
+
+    our::mesh_utils::ModelNode* modelNode = nullptr;
+    if(preserveHierarchy){
+        modelNode = new our::mesh_utils::ModelNode();
+        modelNode->name = node->mName.C_Str();
+        
+        aiVector3D scaling, position;
+        aiQuaternion rotation;
+        node->mTransformation.Decompose(scaling, rotation, position);
+        
+        modelNode->position = glm::vec3(position.x, position.y, position.z);
+        modelNode->scale = glm::vec3(scaling.x, scaling.y, scaling.z);
+        
+        // Convert aiQuaternion to euler angles (ZYX order to match glm::yawPitchRoll)
+        // Wait, Assimp quaternion can be converted to matrix, and then we can extract euler.
+        // Actually, glm::yawPitchRoll is yaw(y), pitch(x), roll(z).
+        // Let's just use the matrix to extract euler angles using glm::extractEulerAngleYXZ or similar,
+        // or just use our Transform class semantics.
+        glm::vec3 euler;
+        glm::extractEulerAngleYXZ(nodeTransform, euler.y, euler.x, euler.z);
+        modelNode->rotation = euler;
+    }
 
     for (unsigned int i = 0; i < node->mNumMeshes; i++) {
         aiMesh* mesh = scene->mMeshes[node->mMeshes[i]];
         int mat_id = mesh->mMaterialIndex;
         
-        // If mergeByMaterial is true, we group only by material ID.
-        // Otherwise, we group by node name and material ID to preserve parts (e.g. for car wheels).
-        const std::string key = mergeByMaterial ? std::to_string(mat_id) : (std::string(node->mName.C_Str()) + "##" + std::to_string(mat_id));
+        std::string key;
+        if(preserveHierarchy){
+            key = "mesh_" + std::to_string(nextUniqueId++);
+            if(modelNode) nodeBuildKeys[modelNode].push_back(key);
+        } else {
+            // If mergeByMaterial is true, we group only by material ID.
+            // Otherwise, we group by node name and material ID to preserve parts (e.g. for car wheels).
+            key = mergeByMaterial ? std::to_string(mat_id) : (std::string(node->mName.C_Str()) + "##" + std::to_string(mat_id));
+        }
         
         auto& entry = builds[key];
         if (entry.objectName.empty()) entry.objectName = node->mName.C_Str();
         entry.materialId = mat_id;
         auto& build = entry.build;
 
-        glm::mat3 normalMatrix = glm::transpose(glm::inverse(glm::mat3(globalTransform)));
+        glm::mat3 normalMatrix = glm::transpose(glm::inverse(glm::mat3(transformToApply)));
 
         for (unsigned int f = 0; f < mesh->mNumFaces; f++) {
             aiFace face = mesh->mFaces[f];
@@ -157,7 +188,7 @@ static void ProcessNode(aiNode* node, const aiScene* scene, const glm::mat4& par
                 our::Vertex vertex = {};
 
                 glm::vec4 pos(mesh->mVertices[idx].x, mesh->mVertices[idx].y, mesh->mVertices[idx].z, 1.0f);
-                pos = globalTransform * pos;
+                pos = transformToApply * pos;
                 vertex.position = glm::vec3(pos);
 
                 if (mesh->HasNormals()) {
@@ -202,11 +233,16 @@ static void ProcessNode(aiNode* node, const aiScene* scene, const glm::mat4& par
     }
 
     for (unsigned int i = 0; i < node->mNumChildren; i++) {
-        ProcessNode(node->mChildren[i], scene, globalTransform, builds, mergeByMaterial);
+        auto* childNode = ProcessNode(node->mChildren[i], scene, globalTransform, builds, mergeByMaterial, preserveHierarchy, nextUniqueId, nodeBuildKeys);
+        if(preserveHierarchy && modelNode && childNode) {
+            modelNode->children.push_back(childNode);
+        }
     }
+    
+    return modelNode;
 }
 
-std::vector<our::mesh_utils::ModelSubMesh> our::mesh_utils::loadModelWithMaterials(const std::string& filename, bool mergeByMaterial) {
+our::mesh_utils::ModelData our::mesh_utils::loadModelWithMaterials(const std::string& filename, bool mergeByMaterial, bool preserveHierarchy) {
     Assimp::Importer importer;
     const aiScene* scene = importer.ReadFile(filename,
         aiProcess_Triangulate |
@@ -235,10 +271,17 @@ std::vector<our::mesh_utils::ModelSubMesh> our::mesh_utils::loadModelWithMateria
     }
 
     std::unordered_map<std::string, SubMeshEntry> builds;
-    ProcessNode(scene->mRootNode, scene, glm::mat4(1.0f), builds, mergeByMaterial);
+    std::unordered_map<our::mesh_utils::ModelNode*, std::vector<std::string>> nodeBuildKeys;
+    int nextUniqueId = 0;
+    
+    // mergeByMaterial overrides preserveHierarchy
+    if (mergeByMaterial) preserveHierarchy = false;
 
-    std::vector<ModelSubMesh> result;
-    result.reserve(builds.size());
+    our::mesh_utils::ModelNode* rootNode = ProcessNode(scene->mRootNode, scene, glm::mat4(1.0f), builds, mergeByMaterial, preserveHierarchy, nextUniqueId, nodeBuildKeys);
+
+    our::mesh_utils::ModelData modelData;
+    modelData.rootNode = rootNode;
+    modelData.submeshes.reserve(builds.size());
 
     for (auto& kv : builds) {
         auto& entry = kv.second;
@@ -368,10 +411,25 @@ std::vector<our::mesh_utils::ModelSubMesh> our::mesh_utils::loadModelWithMateria
             sub.materialName = "__default";
             sub.diffuseColor = glm::vec3(1.0f);
         }
-        result.push_back(std::move(sub));
+        
+        entry.finalIndex = (int)modelData.submeshes.size();
+        modelData.submeshes.push_back(std::move(sub));
     }
 
-    return result;
+    if (preserveHierarchy && modelData.rootNode) {
+        std::function<void(our::mesh_utils::ModelNode*)> mapIndices = [&](our::mesh_utils::ModelNode* node) {
+            for (const auto& key : nodeBuildKeys[node]) {
+                int idx = builds[key].finalIndex;
+                if (idx != -1) node->meshIndices.push_back(idx);
+            }
+            for (auto c : node->children) {
+                mapIndices(c);
+            }
+        };
+        mapIndices(modelData.rootNode);
+    }
+
+    return modelData;
 }
 
 our::Mesh* our::mesh_utils::sphere(const glm::ivec2& segments) {

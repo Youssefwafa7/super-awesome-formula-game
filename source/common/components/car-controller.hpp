@@ -47,10 +47,7 @@ namespace our {
         float steeringAngle = 0.0f; // radians (visual-only)
         bool noClip = false;
 
-        // Cached part indices for front wheel steering (MultiMeshRenderer)
-        bool _cachedFrontWheelParts = false;
-        std::vector<int> _frontWheelPartIndices;
-        std::vector<float> _frontWheelBaseYaw;
+
 
         void deserialize(const nlohmann::json& data) override;
     };

@@ -80,6 +80,7 @@ namespace our {
 
         const bool recenterToOrigin = data.value("recenterToOrigin", false);
         mergeByMaterial = data.value("mergeByMaterial", false);
+        preserveHierarchy = data.value("preserveHierarchy", false);
 
         if(data.contains("excludeObjects") && data["excludeObjects"].is_array()){
             excludeObjects = data["excludeObjects"].get<std::vector<std::string>>();
@@ -113,7 +114,8 @@ namespace our {
         }
 
         // Build sub-meshes split by material.
-        auto submeshes = mesh_utils::loadModelWithMaterials(modelPath, mergeByMaterial);
+        auto modelData = mesh_utils::loadModelWithMaterials(modelPath, mergeByMaterial, preserveHierarchy);
+        auto& submeshes = modelData.submeshes;
         if(submeshes.empty()){
             std::cerr << "[MultiMeshRendererComponent] No submeshes loaded from: " << modelPath << std::endl;
             return;
@@ -247,9 +249,40 @@ namespace our {
                 std::cerr << "[MultiMeshRendererComponent] Recentering enabled. Overall pivot=(" << pivot.x << "," << pivot.y << "," << pivot.z << ")" << std::endl;
             }
         }
+
+        // Build the component node hierarchy from ModelData
+        if(preserveHierarchy && modelData.rootNode){
+            std::function<Node*(our::mesh_utils::ModelNode*, Node*)> convertNode = [&](our::mesh_utils::ModelNode* src, Node* parent) {
+                Node* dst = new Node();
+                dst->name = src->name;
+                dst->localTransform.position = src->position;
+                dst->localTransform.rotation = src->rotation;
+                dst->localTransform.scale = src->scale;
+                dst->originalTransform = dst->localTransform;
+                dst->parent = parent;
+                dst->partIndices = src->meshIndices;
+                
+                for(auto* childSrc : src->children){
+                    dst->children.push_back(convertNode(childSrc, dst));
+                }
+                return dst;
+            };
+            rootNode = convertNode(modelData.rootNode, nullptr);
+            
+            if(debugPrintParts){
+                std::function<void(Node*, int)> printNode = [&](Node* n, int depth){
+                    std::string indent(depth * 2, ' ');
+                    std::cerr << indent << "- Node: " << n->name << " (parts: " << n->partIndices.size() << ")" << std::endl;
+                    for(auto c : n->children) printNode(c, depth + 1);
+                };
+                std::cerr << "[MultiMeshRendererComponent] Scene Graph:" << std::endl;
+                printNode(rootNode, 0);
+            }
+        }
     }
 
     MultiMeshRendererComponent::~MultiMeshRendererComponent(){
+        delete rootNode;
         // Note: shader/sampler are typically owned by AssetLoader.
         for(auto* m : ownedMaterials) delete m;
         for(auto* mesh : ownedMeshes) delete mesh;

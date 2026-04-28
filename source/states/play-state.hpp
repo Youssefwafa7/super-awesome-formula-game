@@ -9,7 +9,7 @@
 #include <systems/movement.hpp>
 #include <systems/car-controller.hpp>
 #include <systems/chase-camera.hpp>
-#include <systems/wheel-spin.hpp>
+#include <systems/car-rig.hpp>
 #include <asset-loader.hpp>
 #include <components/camera.hpp>
 #include <components/car-controller.hpp>
@@ -30,7 +30,7 @@ class Playstate: public our::State {
     our::MovementSystem movementSystem;
     our::CarControllerSystem carControllerSystem;
     our::ChaseCameraSystem chaseCameraSystem;
-    our::WheelSpinSystem wheelSpinSystem;
+    our::CarRigSystem carRigSystem;
 
     bool debugCollisionOverlayEnabled = true;
     bool debugDrawCarBox = true;
@@ -388,7 +388,7 @@ class Playstate: public our::State {
             chaseCameraSystem.update(&world, (float)deltaTime);
         }
         
-        wheelSpinSystem.update(&world, (float)deltaTime);
+        carRigSystem.update(&world, (float)deltaTime);
         cameraController.update(&world, (float)deltaTime);
         // And finally we use the renderer system to draw the scene
         renderer.render(&world);

@@ -36,8 +36,20 @@ namespace our {
             // AABB size in the original OBJ local space (before pivot centering).
             glm::vec3 aabbSize = glm::vec3(0.0f);
         };
+        
+        struct Node {
+            std::string name;
+            Transform localTransform;
+            Transform originalTransform;
+            std::vector<int> partIndices; // Indices into parts vector
+            std::vector<Node*> children;
+            Node* parent = nullptr;
+            
+            ~Node() { for (auto c : children) delete c; }
+        };
 
         std::vector<Part> parts;
+        Node* rootNode = nullptr;
 
         // Optional source path (useful for debug logs)
         std::string sourceObjPath;
@@ -48,8 +60,25 @@ namespace our {
 
         bool debugPrintParts = false;
         bool mergeByMaterial = false;
+        bool preserveHierarchy = false;
 
         static std::string getID() { return "Multi Mesh Renderer"; }
+
+        Node* findNodeRecursive(Node* root, const std::string& name) const {
+            if(!root) return nullptr;
+            std::string rLower = root->name;
+            std::string nLower = name;
+            for(auto& c : rLower) c = (char)std::tolower(c);
+            for(auto& c : nLower) c = (char)std::tolower(c);
+            
+            if(rLower.find(nLower) != std::string::npos) return root;
+            
+            for(auto* child : root->children){
+                Node* found = findNodeRecursive(child, name);
+                if(found) return found;
+            }
+            return nullptr;
+        }
 
         void deserialize(const nlohmann::json& data) override;
 
