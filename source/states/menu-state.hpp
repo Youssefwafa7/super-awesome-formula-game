@@ -18,7 +18,7 @@
 #include <cstdio>
 
 #define NUM_TRACK_PRESETS 3
-#define NUM_CAR_PRESETS 3
+#define NUM_CAR_PRESETS 2
 
 struct Button
 {
@@ -650,9 +650,8 @@ class Menustate : public our::State
             case MenuScreen::CAR_SELECT:
                 if (selectedIndex == 0) { selectedCarIndex = 0; if (!carPresetIds.empty()) getApp()->setSelectedCarPreset(carPresetIds[0]); }
                 else if (selectedIndex == 1) { selectedCarIndex = 1; if (carPresetIds.size() > 1) getApp()->setSelectedCarPreset(carPresetIds[1]); }
-                else if (selectedIndex == 2) { selectedCarIndex = 2; if (carPresetIds.size() > 2) getApp()->setSelectedCarPreset(carPresetIds[2]); }
-                else if (selectedIndex == 3) { currentScreen = MenuScreen::TRACK_SELECT; selectedIndex = 0; }
-                else if (selectedIndex == 4) getApp()->changeState("play");
+                else if (selectedIndex == 2) { currentScreen = MenuScreen::TRACK_SELECT; selectedIndex = 0; }
+                else if (selectedIndex == 3) getApp()->changeState("play");
                 break;
             }
         }

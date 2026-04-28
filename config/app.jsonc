@@ -42,8 +42,7 @@
       },
       "meshes": {
         "standard_kart": "assets/models/Cartoon_Formula_1975/Cartoon_Formula_1975.gltf",
-        "boom_karts_kart": "assets/models/1991_f1_car/1991.gltf",
-        "cartoon_race_car_amgt_v8": "assets/models/Cartoon_Race_Car_-_AMGT_V8/Cartoon_Race_Car_-_AMGT_V8.gltf"
+        "boom_karts_kart": "assets/models/1991_f1_car/1991.gltf"
       },
       "samplers": {
         "default": {
@@ -58,7 +57,7 @@
 
     // Default selection (used on launch; the menu lets you change these).
     "selection": {
-      "car": "cartoon_race_car_amgt_v8",
+      "car": "standard_kart",
       "track": "spa"
     },
 
@@ -196,73 +195,6 @@
                 "includeNameSubstrings": ["wheel", "tire", "tyre", "rim"],
                 "excludeNameSubstrings": ["body", "chassis"],
                 "debugPrintParts": false
-              }
-            ]
-          }
-        },
-
-        // Car preset: Cartoon AMGT V8
-        // Copying defaults from Standard Kart; adjust scale/physics as needed.
-        {
-          "id": "cartoon_race_car_amgt_v8",
-          "label": "Cartoon AMGT V8",
-          "entity": {
-            "name": "player",
-            "position": [0.0, 0.0, 0.0],
-            "rotation": [0, 0, 0],
-            "scale": [0.7, 0.7, 0.7],
-            "components": [
-              {
-                "type": "Light",
-                "lightType": "spot",
-                "color": [1.0, 1.0, 1.0],
-                "intensity": 30.0,
-                "attenuation": [1.0, 0.03, 0.002],
-                "innerAngle": 12.0,
-                "outerAngle": 22.0,
-                "positionOffset": [0.0, 0.35, 8.0],
-                "invertDirection": true
-              },
-              {
-                "type": "Car Controller",
-                "acceleration": 14.0,
-                "brakeAcceleration": 20.0,
-                "maxSpeed": 20.0,
-                "maxReverseSpeed": 7.0,
-                "turnSpeed": 2.2,
-                "linearDamping": 4.0,
-                "grassSpeedFactor": 0.7,
-                "grassDamping": 3.8,
-                "grassTurnFactor": 0.60,
-                "grassAccelFactor": 0.60,
-                "wallBounceDamping": 0.32,
-                "collisionSubstepDistance": 0.12,
-                "collisionRadius": 0.13,
-                "wallPushback": 0.004,
-                "wallResolveIterations": 4,
-                "maxClimbHeight": 0.22,
-                "wheelSteerMaxAngle": 30.0,
-                "groundClearance": 0.02
-              },
-              {
-                "type": "Multi Mesh Renderer",
-                "mesh": "cartoon_race_car_amgt_v8",
-                "shader": "lit",
-                "sampler": "default",
-                "pipelineState": {
-                  "faceCulling": { "enabled": false },
-                  "depthTesting": { "enabled": true }
-                },
-                "tint": [1, 1, 1, 1]
-              },
-              {
-                "type": "Wheel Spin",
-                "axis": "auto",
-                "direction": 1.0,
-                "desiredWheelCount": 4,
-                "includeNameSubstrings": ["wheel", "tire", "tyre", "rim"],
-                "excludeNameSubstrings": ["body", "chassis"],
-                "debugPrintParts": true
               }
             ]
           }
