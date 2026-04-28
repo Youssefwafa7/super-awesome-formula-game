@@ -243,50 +243,83 @@ namespace our {
                 return;
             }
 
-            // Pick up to 4 best wheel candidates.
+            // Pick up to 32 best wheel candidates to ensure we see the whole car.
             std::sort(candidates.begin(), candidates.end(), [](const Candidate& a, const Candidate& b){ return a.score > b.score; });
-            if(candidates.size() > 8) candidates.resize(8);
+            if(candidates.size() > 32) candidates.resize(32);
 
-            // Compute center, then pick farthest points.
+            // Compute center of all candidates to help distinguish corners.
             glm::vec3 center(0.0f);
             for(const auto& c : candidates) center += c.p;
             center /= (float)candidates.size();
 
-            std::vector<int> picked;
-            picked.reserve(4);
-            while(picked.size() < 4 && !candidates.empty()){
+            // 1. Identify the 4 distinct corners by picking the 4 most spread-out wheel parts.
+            std::vector<int> cornerAnchors;
+            cornerAnchors.reserve(4);
+            while(cornerAnchors.size() < 4 && !candidates.empty()){
                 int bestIdx = -1;
                 float bestVal = -1e9f;
                 for(const auto& c : candidates){
-                    if(std::find(picked.begin(), picked.end(), c.idx) != picked.end()) continue;
-                    const float dist = glm::length(glm::vec2(c.p.x - center.x, c.p.z - center.z));
-                    const float val = dist + 0.15f * c.score;
+                    bool alreadyPicked = false;
+                    for(int anchor : cornerAnchors) if(anchor == c.idx) alreadyPicked = true;
+                    if(alreadyPicked) continue;
+
+                    float minDist = glm::length(glm::vec2(c.p.x - center.x, c.p.z - center.z));
+                    for(int anchorIdx : cornerAnchors){
+                        const glm::vec3& anchorP = multi.parts[anchorIdx].localTransform.position;
+                        minDist = std::min(minDist, glm::length(glm::vec2(c.p.x - anchorP.x, c.p.z - anchorP.z)));
+                    }
+                    const float val = minDist + 0.1f * c.score;
                     if(val > bestVal){ bestVal = val; bestIdx = c.idx; }
                 }
                 if(bestIdx < 0) break;
-                picked.push_back(bestIdx);
+                cornerAnchors.push_back(bestIdx);
             }
 
-            if(picked.size() < 2){
-                car._cachedFrontWheelParts = true;
-                return;
+            // 2. Identify which of these corners are "Front" (highest Z).
+            std::vector<int> frontAnchors;
+            if(cornerAnchors.size() >= 2){
+                std::sort(cornerAnchors.begin(), cornerAnchors.end(), [&](int a, int b){
+                    return multi.parts[a].localTransform.position.z > multi.parts[b].localTransform.position.z;
+                });
+                // We assume the top 2 unique Z positions (or just top 2 parts if Zs are same) are front.
+                frontAnchors.push_back(cornerAnchors[0]);
+                frontAnchors.push_back(cornerAnchors[1]);
+                // If there are more than 2 corners and the 3rd is very close in Z to the 2nd, include it (for 6-wheelers).
+                if(cornerAnchors.size() > 2){
+                    float z2 = multi.parts[cornerAnchors[1]].localTransform.position.z;
+                    float z3 = multi.parts[cornerAnchors[2]].localTransform.position.z;
+                    if(std::abs(z2 - z3) < 0.5f) frontAnchors.push_back(cornerAnchors[2]);
+                }
             }
 
-            // Front wheels: those with highest local Z (assuming car forward is +Z).
-            std::vector<std::pair<float,int>> byZ;
-            byZ.reserve(picked.size());
-            for(int idx : picked){
-                byZ.push_back({multi.parts[idx].localTransform.position.z, idx});
-            }
-            std::sort(byZ.begin(), byZ.end(), [](auto a, auto b){ return a.first > b.first; });
-
+            // 3. For each front corner, collect ALL parts in 'candidates' that are near it.
             car._frontWheelPartIndices.clear();
             car._frontWheelBaseYaw.clear();
-            const int count = std::min(2, (int)byZ.size());
-            for(int i = 0; i < count; i++){
-                const int idx = byZ[i].second;
-                car._frontWheelPartIndices.push_back(idx);
-                car._frontWheelBaseYaw.push_back(multi.parts[idx].localTransform.rotation.y);
+            for(const auto& c : candidates){
+                // Find which of the 4 corner anchors this part is closest to
+                int closestAnchor = -1;
+                float minDist = 1e9f;
+                for(int anchorIdx : cornerAnchors){
+                    const glm::vec3& anchorP = multi.parts[anchorIdx].localTransform.position;
+                    float d = glm::length(glm::vec2(c.p.x - anchorP.x, c.p.z - anchorP.z));
+                    if(d < minDist){
+                        minDist = d;
+                        closestAnchor = anchorIdx;
+                    }
+                }
+                
+                // If the closest anchor is one of our front anchors, this part belongs to a front wheel!
+                bool isFront = false;
+                for(int fa : frontAnchors) if(fa == closestAnchor) isFront = true;
+                
+                if(isFront){
+                    bool alreadyIn = false;
+                    for(int existing : car._frontWheelPartIndices) if(existing == c.idx) alreadyIn = true;
+                    if(!alreadyIn){
+                        car._frontWheelPartIndices.push_back(c.idx);
+                        car._frontWheelBaseYaw.push_back(multi.parts[c.idx].localTransform.rotation.y);
+                    }
+                }
             }
 
             car._cachedFrontWheelParts = true;

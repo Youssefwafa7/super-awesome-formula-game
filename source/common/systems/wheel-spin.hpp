@@ -97,6 +97,7 @@ namespace our {
                     hasWheelName = true;
                 }
 
+                if(!spin.includeNameSubstrings.empty() && !hasWheelName) continue;
                 if(!hasWheelName && roundness < 0.75f) continue;
                 if(roundness < 0.45f) continue;
 
@@ -117,6 +118,13 @@ namespace our {
             glm::vec2 center(0.0f);
             for(const auto& c : candidates) center += c.xz;
             center /= (float)candidates.size();
+
+            if(spin.desiredWheelCount <= 0){
+                std::vector<int> picked;
+                picked.reserve(candidates.size());
+                for(const auto& c : candidates) picked.push_back(c.index);
+                return picked;
+            }
 
             const int desiredCount = std::max(1, spin.desiredWheelCount);
 

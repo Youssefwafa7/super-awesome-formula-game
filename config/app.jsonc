@@ -41,8 +41,8 @@
         }
       },
       "meshes": {
-        "standard_kart": "assets/models/standard_kart/standard_kart.obj",
-        "boom_karts_kart": "assets/models/boom_karts_kart/boom_karts_kart.obj"
+        "standard_kart": "assets/models/Cartoon_Formula_1975/Cartoon_Formula_1975.gltf",
+        "boom_karts_kart": "assets/models/1991_f1_car/1991.gltf"
       },
       "samplers": {
         "default": {
@@ -73,8 +73,8 @@
           "entity": {
             "name": "player",
             "position": [0.0, 0.0, 0.0],
-            "rotation": [0, 90, 0],
-            "scale": [0.1, 0.1, 0.1],
+            "rotation": [0, 0, 0],
+            "scale": [0.7, 0.7, 0.7],
             "components": [
               {
                 "type": "Light",
@@ -106,7 +106,7 @@
                 "wallResolveIterations": 4,
                 "maxClimbHeight": 0.22,
                 "wheelSteerMaxAngle": 30.0,
-                "groundClearance": 0.12
+                "groundClearance": 0.02
               },
               {
                 "type": "Multi Mesh Renderer",
@@ -126,7 +126,7 @@
                 "desiredWheelCount": 4,
                 "includeNameSubstrings": ["wheel", "tire", "tyre", "rim"],
                 "excludeNameSubstrings": ["body", "chassis"],
-                "debugPrintParts": false
+                "debugPrintParts": true
               }
             ]
           }
@@ -140,8 +140,8 @@
           "entity": {
             "name": "player",
             "position": [0.0, 0.0, 0.0],
-            "rotation": [0, 90, 0],
-            "scale": [70.0, 70.0, 70.0],
+            "rotation": [0, 0, 0],
+            "scale": [0.17, 0.17, 0.17],
             "components": [
               {
                 "type": "Light",
@@ -173,12 +173,12 @@
                 "wallResolveIterations": 4,
                 "maxClimbHeight": 0.22,
                 "wheelSteerMaxAngle": 30.0,
-                "groundClearance": 0.26
+                "groundClearance": 0.05
               },
               {
                 "type": "Multi Mesh Renderer",
                 "mesh": "boom_karts_kart",
-                "recenterToOrigin": true,
+                "recenterToOrigin": false,
                 "shader": "lit",
                 "sampler": "default",
                 "pipelineState": {
@@ -191,7 +191,7 @@
                 "type": "Wheel Spin",
                 "axis": "auto",
                 "direction": 1.0,
-                "desiredWheelCount": 4,
+                "desiredWheelCount": 0,
                 "includeNameSubstrings": ["wheel", "tire", "tyre", "rim"],
                 "excludeNameSubstrings": ["body", "chassis"],
                 "debugPrintParts": false
@@ -207,23 +207,23 @@
           "id": "south_garda",
           "label": "South Garda Karting",
           "spawn": {
-            "position": [40.35, 0.48, 3.83],
+            "position": [40.35, 18, 3.83],
             "rotation": [0, -267, 0]
           },
           "entity": {
             "name": "track",
             "position": [-18.04, 0.0, -26.12],
             "rotation": [0, 0, 0],
-            "scale": [50.0, 50.0, 50.0],
+            "scale": [0.7, 0.7, 0.7],
             "components": [
               {
                 "type": "Track Heightfield",
-                "model": "assets/models/test-sarda/race_trackkarting_track_based_on_south_garda.gltf",
+                "model": "assets/models/Cartoon_Race_Track_Montreal/Cartoon_Race_Track_Montreal.gltf",
                 "cellSize": 0.2,
-                "minNormalY": 0.6,
-                "hardWallNormalY": 0.12,
+                "minNormalY": 0.8,
+                "hardWallNormalY": 0.0,
                 "treatUnknownAsGrass": true,
-                "grassSearchCells": 4,
+                "grassSearchCells": 2,
                 "buildWallSegments": true,
                 "wallCollisionDilateCells": 0,
                 "wallCollisionMargin": 0.0,
@@ -256,10 +256,11 @@
               {
                 "type": "Multi Mesh Renderer",
                 "mergeByMaterial": true,
-                "model": "assets/models/test-sarda/race_trackkarting_track_based_on_south_garda.gltf",
+                "model": "assets/models/Cartoon_Race_Track_Montreal/Cartoon_Race_Track_Montreal.gltf",
                 "shader": "lit",
                 "sampler": "default",
                 "debugPrintParts": false,
+                "excludeMaterials": ["collider"],
                 "pipelineState": {
                   "faceCulling": { "enabled": false },
                   "depthTesting": { "enabled": true }
@@ -286,7 +287,7 @@
               {
                 "type": "Track Heightfield",
                 "model": "assets/models/silverstone-gltf-test/silverstone_light.gltf",
-                "cellSize": 0.6,
+                "cellSize": 0.2,
                 "minNormalY": 0.6,
                 "hardWallNormalY": 0.0,
                 "treatUnknownAsGrass": true,

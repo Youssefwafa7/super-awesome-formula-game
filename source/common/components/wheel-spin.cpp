@@ -36,7 +36,7 @@ namespace our {
         // Clamp values
         if(axis < -1) axis = -1;
         if(axis > 2) axis = 2;
-        if(desiredWheelCount < 1) desiredWheelCount = 1;
+        if(desiredWheelCount < 0) desiredWheelCount = 0;
     }
 
 }
