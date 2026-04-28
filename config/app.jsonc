@@ -74,7 +74,7 @@
             "name": "player",
             "position": [0.0, 0.0, 0.0],
             "rotation": [0, 0, 0],
-            "scale": [0.7, 0.7, 0.7],
+            "scale": [0.8, 0.8, 0.8],
             "components": [
               {
                 "type": "Light",
@@ -91,9 +91,9 @@
                 "type": "Car Controller",
                 "acceleration": 14.0,
                 "brakeAcceleration": 20.0,
-                "maxSpeed": 20.0,
+                "maxSpeed": 30.0,
                 "maxReverseSpeed": 7.0,
-                "turnSpeed": 2.2,
+                "turnSpeed": 2.4,
                 "linearDamping": 4.0,
                 "grassSpeedFactor": 0.7,
                 "grassDamping": 3.8,
@@ -141,7 +141,7 @@
             "name": "player",
             "position": [0.0, 0.0, 0.0],
             "rotation": [0, 0, 0],
-            "scale": [0.17, 0.17, 0.17],
+            "scale": [0.25, 0.25, 0.25],
             "components": [
               {
                 "type": "Light",
@@ -158,9 +158,9 @@
                 "type": "Car Controller",
                 "acceleration": 14.0,
                 "brakeAcceleration": 20.0,
-                "maxSpeed": 20.0,
+                "maxSpeed": 30.0,
                 "maxReverseSpeed": 7.0,
-                "turnSpeed": 2.2,
+                "turnSpeed": 2.4,
                 "linearDamping": 4.0,
                 "grassSpeedFactor": 0.7,
                 "grassDamping": 3.8,
@@ -456,7 +456,7 @@
           {
             "type": "Chase Camera",
             "target": "player",
-            "offset": [0.0, 3.0, -3.8],
+            "offset": [0.0, 2.5, -3.8],
             "lockRotation": true,
             "pitch": -0.25,
             "lookAtOffset": [0.0, 0.7, 0.6]
