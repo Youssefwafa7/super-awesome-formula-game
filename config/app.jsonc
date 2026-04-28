@@ -74,7 +74,7 @@
             "name": "player",
             "position": [0.0, 0.0, 0.0],
             "rotation": [0, 0, 0],
-            "scale": [0.8, 0.8, 0.8],
+            "scale": [0.96, 0.96, 0.96],
             "components": [
               {
                 "type": "Light",
@@ -456,7 +456,7 @@
           {
             "type": "Chase Camera",
             "target": "player",
-            "offset": [0.0, 2.5, -3.8],
+            "offset": [0.0, 2.5, -4.4],
             "lockRotation": true,
             "pitch": -0.25,
             "lookAtOffset": [0.0, 0.7, 0.6]
