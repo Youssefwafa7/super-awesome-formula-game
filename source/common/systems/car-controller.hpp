@@ -510,7 +510,7 @@ namespace our {
                 } else if(throttle < 0.0f){
                     if(car->speed > 0.0f){
                         // Braking while moving forward
-                        car->speed -= (car->brakeAcceleration * 0.6f) * accelFactor * deltaTime;
+                        car->speed -= (car->brakeAcceleration * 0.5f) * accelFactor * deltaTime;
                         if(car->speed <= 0.0f) {
                             car->speed = 0.0f;
                             car->reverseCooldownTimer = 0.5f; // 0.5 seconds cooldown
@@ -554,7 +554,7 @@ namespace our {
 
                 // Turning. (Less turning when nearly stopped.)
                 const float speedRatio = std::clamp(std::abs(car->speed) / std::max(1e-3f, car->maxSpeed), 0.0f, 1.0f);
-                const float angleFactor = 1.0f - 0.48f * speedRatio; // Steering angle decreases with speed
+                const float angleFactor = 1.0f - 0.44f * speedRatio; // Steering angle decreases with speed
                 const float turnFactor = speedRatio * angleFactor; // Turning rate proportional to speed
                 const float grassTurnFactor = onGrass ? car->grassTurnFactor : 1.0f;
                 
