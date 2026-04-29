@@ -471,6 +471,22 @@ namespace our {
                 if(isRaceStarted){
                     throttle = (keyboard.isPressed(GLFW_KEY_W) ? 1.0f : 0.0f) - (keyboard.isPressed(GLFW_KEY_S) ? 1.0f : 0.0f);
                     steer = (keyboard.isPressed(GLFW_KEY_A) ? 1.0f : 0.0f) - (keyboard.isPressed(GLFW_KEY_D) ? 1.0f : 0.0f);
+
+                    GLFWgamepadstate state;
+                    if (glfwGetGamepadState(GLFW_JOYSTICK_1, &state)) {
+                        float rt = (state.axes[GLFW_GAMEPAD_AXIS_RIGHT_TRIGGER] + 1.0f) / 2.0f;
+                        float lt = (state.axes[GLFW_GAMEPAD_AXIS_LEFT_TRIGGER] + 1.0f) / 2.0f;
+                        float leftX = state.axes[GLFW_GAMEPAD_AXIS_LEFT_X];
+
+                        // Deadzone for analog stick
+                        if (std::abs(leftX) < 0.1f) leftX = 0.0f;
+
+                        throttle += (rt - lt);
+                        steer += -leftX; // Left is positive, Right is negative in this engine
+
+                        throttle = std::clamp(throttle, -1.0f, 1.0f);
+                        steer = std::clamp(steer, -1.0f, 1.0f);
+                    }
                 }
                 
                 const bool onGrass = (currentSurface == TrackHeightfieldComponent::SurfaceType::Grass);
