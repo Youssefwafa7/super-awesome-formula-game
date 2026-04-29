@@ -521,7 +521,7 @@ class Playstate: public our::State {
                     auto* car = player->getComponent<our::CarControllerComponent>();
                     if(car){
                         const float speedMS = std::abs(car->speed);
-                        const float speedKMH = speedMS * 3.6f;
+                        const float speedKMH = speedMS * 3.6f * 1.5f;
                         const bool reversing = (car->speed < -0.1f);
                         ImGui::Text("%s  %.1f km/h", reversing ? "R" : "D", speedKMH);
                     } else {

@@ -538,7 +538,7 @@ namespace our {
 
                 // Turning. (Less turning when nearly stopped.)
                 const float speedRatio = std::clamp(std::abs(car->speed) / std::max(1e-3f, car->maxSpeed), 0.0f, 1.0f);
-                const float angleFactor = 1.0f - 0.6f * speedRatio; // Steering angle decreases with speed
+                const float angleFactor = 1.0f - 0.48f * speedRatio; // Steering angle decreases with speed
                 const float turnFactor = speedRatio * angleFactor; // Turning rate proportional to speed
                 const float grassTurnFactor = onGrass ? car->grassTurnFactor : 1.0f;
                 
