@@ -42,6 +42,7 @@ struct Button
 enum class MenuScreen
 {
     MAIN_MENU,
+    MODE_SELECT,
     TRACK_SELECT,
     CAR_SELECT
 };
@@ -242,7 +243,7 @@ class Menustate : public our::State
 
             if (buttonCentered("PLAY", ImVec2(260, 55), keyboardNavActive && selectedIndex == 0))
             {
-                currentScreen = MenuScreen::TRACK_SELECT;
+                currentScreen = MenuScreen::MODE_SELECT;
                 selectedIndex = 0;
             }
             ImGui::Dummy(ImVec2(0, 8));
@@ -251,6 +252,55 @@ class Menustate : public our::State
             {
                 getApp()->close();
             }
+            if(bodyFont) ImGui::PopFont();
+        }
+        ImGui::End();
+        popF1Theme(colors);
+    }
+
+    void renderModeSelect()
+    {
+        const ImVec2 display = ImGui::GetIO().DisplaySize;
+        ImGui::SetNextWindowPos(ImVec2(0, 0));
+        ImGui::SetNextWindowSize(display);
+
+        int colors = pushF1Theme();
+        ImGuiWindowFlags flags = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove |
+                                 ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoNav;
+        if (ImGui::Begin("##ModeSelect", nullptr, flags))
+        {
+            float contentH = 80.0f + 40.0f + 40.0f + 65.0f + 65.0f + 30.0f;
+            ImGui::SetCursorPosY((display.y - contentH) * 0.5f);
+
+            if(headingFont) ImGui::PushFont(headingFont);
+            textCenteredGlow("SELECT MODE", kRedAccent());
+            if(headingFont) ImGui::PopFont();
+            if(bodyFont) ImGui::PushFont(bodyFont);
+
+            ImGui::Dummy(ImVec2(0, 40));
+
+            if (buttonCentered("SINGLE PLAYER", ImVec2(260, 55), keyboardNavActive && selectedIndex == 0))
+            {
+                getApp()->setIsMultiplayer(false);
+                currentScreen = MenuScreen::TRACK_SELECT;
+                selectedIndex = 0;
+            }
+            ImGui::Dummy(ImVec2(0, 8));
+
+            if (buttonCentered("MULTIPLAYER", ImVec2(260, 55), keyboardNavActive && selectedIndex == 1))
+            {
+                getApp()->setIsMultiplayer(true);
+                currentScreen = MenuScreen::TRACK_SELECT;
+                selectedIndex = 0;
+            }
+            
+            ImGui::Dummy(ImVec2(0, 40));
+            
+            if (buttonCentered("< BACK", ImVec2(260, 45), keyboardNavActive && selectedIndex == 2)) {
+                currentScreen = MenuScreen::MAIN_MENU;
+                selectedIndex = 0;
+            }
+
             if(bodyFont) ImGui::PopFont();
         }
         ImGui::End();
@@ -342,7 +392,7 @@ class Menustate : public our::State
             } 
 
             if (ImGui::Button("< BACK", ImVec2(navW, 45))) {
-                currentScreen = MenuScreen::MAIN_MENU;
+                currentScreen = MenuScreen::MODE_SELECT;
                 selectedIndex = 0;
             }
             if (backActive) { ImGui::PopStyleColor(2); ImGui::PopStyleVar(1); }
@@ -572,6 +622,7 @@ class Menustate : public our::State
         switch (currentScreen)
         {
         case MenuScreen::MAIN_MENU: renderMainMenu(); break;
+        case MenuScreen::MODE_SELECT: renderModeSelect(); break;
         case MenuScreen::TRACK_SELECT: renderTrackSelect(); break;
         case MenuScreen::CAR_SELECT: renderCarSelect(); break;
         }
@@ -586,6 +637,7 @@ class Menustate : public our::State
         switch (currentScreen)
         {
         case MenuScreen::MAIN_MENU: itemCount = 2; break;
+        case MenuScreen::MODE_SELECT: itemCount = 3; break;
         case MenuScreen::TRACK_SELECT: itemCount = 2 + NUM_TRACK_PRESETS; break;
         case MenuScreen::CAR_SELECT: itemCount = 2 + NUM_CAR_PRESETS; break;
         }
@@ -595,7 +647,7 @@ class Menustate : public our::State
         if (keyboard.justPressed(GLFW_KEY_DOWN) || keyboard.justPressed(GLFW_KEY_UP)) {
             bool down = keyboard.justPressed(GLFW_KEY_DOWN);
             keyboardNavActive = true;
-            if (currentScreen == MenuScreen::MAIN_MENU) {
+            if (currentScreen == MenuScreen::MAIN_MENU || currentScreen == MenuScreen::MODE_SELECT) {
                 if ((down && selectedIndex < itemCount - 1) || (!down && selectedIndex > 0))
                     selectedIndex += down ? 1 : -1;
             } else if (isSpecialScreen) {
@@ -622,14 +674,19 @@ class Menustate : public our::State
             switch (currentScreen)
             {
             case MenuScreen::MAIN_MENU:
-                if (selectedIndex == 0) { currentScreen = MenuScreen::TRACK_SELECT; selectedIndex = 0; }
+                if (selectedIndex == 0) { currentScreen = MenuScreen::MODE_SELECT; selectedIndex = 0; }
                 else if (selectedIndex == 1) getApp()->close();
+                break;
+            case MenuScreen::MODE_SELECT:
+                if (selectedIndex == 0) { getApp()->setIsMultiplayer(false); currentScreen = MenuScreen::TRACK_SELECT; selectedIndex = 0; }
+                else if (selectedIndex == 1) { getApp()->setIsMultiplayer(true); currentScreen = MenuScreen::TRACK_SELECT; selectedIndex = 0; }
+                else if (selectedIndex == 2) { currentScreen = MenuScreen::MAIN_MENU; selectedIndex = 0; }
                 break;
             case MenuScreen::TRACK_SELECT:
                 if (selectedIndex < (int)trackPresetIds.size()) {
                     selectedTrackIndex = selectedIndex;
                     getApp()->setSelectedTrackPreset(trackPresetIds[selectedIndex]);
-                } else if (selectedIndex == 3) { currentScreen = MenuScreen::MAIN_MENU; selectedIndex = 0; }
+                } else if (selectedIndex == 3) { currentScreen = MenuScreen::MODE_SELECT; selectedIndex = 0; }
                 else if (selectedIndex == 4) { currentScreen = MenuScreen::CAR_SELECT; selectedIndex = 0; }
                 break;
             case MenuScreen::CAR_SELECT:
@@ -648,7 +705,8 @@ class Menustate : public our::State
         if (keyboard.justPressed(GLFW_KEY_ESCAPE))
         {
             if (currentScreen == MenuScreen::CAR_SELECT) currentScreen = MenuScreen::TRACK_SELECT;
-            else if (currentScreen == MenuScreen::TRACK_SELECT) currentScreen = MenuScreen::MAIN_MENU;
+            else if (currentScreen == MenuScreen::TRACK_SELECT) currentScreen = MenuScreen::MODE_SELECT;
+            else if (currentScreen == MenuScreen::MODE_SELECT) currentScreen = MenuScreen::MAIN_MENU;
             else getApp()->close();
         }
 

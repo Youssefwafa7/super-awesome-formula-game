@@ -32,7 +32,7 @@ class Playstate: public our::State {
     our::ChaseCameraSystem chaseCameraSystem;
     our::WheelSpinSystem wheelSpinSystem;
 
-    bool debugCollisionOverlayEnabled = true;
+    bool debugCollisionOverlayEnabled = false;
     bool debugDrawCarBox = true;
     bool debugDrawWallBoxes = true;
     bool debugDrawWallSegments = false;
@@ -79,17 +79,24 @@ class Playstate: public our::State {
 
     std::vector<Checkpoint> checkpoints;
     int nextCheckpointIndex = 0;
-    int currentLap = 1;
+    struct PlayerStats {
+        int nextCheckpointIndex = 0;
+        int currentLap = 1;
+        float currentLapTime = 0.0f;
+        float bestLapTime = 0.0f;
+        float totalRaceTime = 0.0f;
+        float totalPenaltyTime = 0.0f;
+        int playerPosition = 1;
+        bool raceFinished = false;
+        bool crossedStartLine = false;
+        int lastHitIdx = -1;
+    };
+
+    PlayerStats player1Stats;
+    PlayerStats player2Stats;
     int totalLaps = 3;
-    float currentLapTime = 0.0f;
-    float bestLapTime = 0.0f;
-    float totalRaceTime = 0.0f;
-    float totalPenaltyTime = 0.0f;
-    int playerPosition = 1;
     std::vector<AiRacer> aiRacers;
     bool raceFinished = false;
-    bool crossedStartLine = false;
-    int lastHitIdx = -1;
 
     std::string currentTrackId;
     float checkpointRadius = 25.0f;
@@ -157,105 +164,112 @@ class Playstate: public our::State {
         }
     }
 
+    void updatePlayerRaceLogic(PlayerStats& stats, our::Entity* player, float deltaTime) {
+        if (!player || checkpoints.size() < 2) return;
+
+        glm::vec3 playerPos = player->localTransform.position;
+
+        if (!stats.crossedStartLine) {
+            if (!checkpoints.empty()) {
+                float dist = glm::distance(playerPos, checkpoints[0].pos);
+                if (dist < checkpoints[0].radius) {
+                    stats.crossedStartLine = true;
+                    stats.lastHitIdx = 0;
+                    stats.totalRaceTime = 0.0f;
+                    stats.currentLapTime = 0.0f;
+                    stats.nextCheckpointIndex = 1 % checkpoints.size();
+                }
+            }
+            return;
+        }
+
+        stats.totalRaceTime += (float)deltaTime;
+        stats.currentLapTime += (float)deltaTime;
+
+        if (!checkpoints.empty()) {
+            int foundIdx = -1;
+            int searchRange = std::max(1, (int)checkpoints.size() / 2);
+            for (int i = 0; i < searchRange; ++i) {
+                int idx = (stats.nextCheckpointIndex + i) % checkpoints.size();
+                float dist = glm::distance(playerPos, checkpoints[idx].pos);
+                if (dist < checkpoints[idx].radius) {
+                    foundIdx = idx;
+                    break;
+                }
+            }
+
+            if (foundIdx != -1 && foundIdx != stats.lastHitIdx) {
+                int numSkipped = 0;
+                if (foundIdx >= stats.nextCheckpointIndex) {
+                    numSkipped = foundIdx - stats.nextCheckpointIndex;
+                } else {
+                    numSkipped = ((int)checkpoints.size() - stats.nextCheckpointIndex) + foundIdx;
+                }
+
+                if (numSkipped > 0) {
+                    stats.totalPenaltyTime += (float)numSkipped * 20.0f; 
+                }
+
+                if (foundIdx < stats.nextCheckpointIndex || (foundIdx == 0 && stats.nextCheckpointIndex == 0)) {
+                    if (stats.bestLapTime == 0.0f || stats.currentLapTime < stats.bestLapTime) stats.bestLapTime = stats.currentLapTime;
+                    if (stats.currentLap >= totalLaps) {
+                        stats.raceFinished = true;
+                    } else {
+                        stats.currentLap++;
+                        stats.currentLapTime = 0.0f;
+                    }
+                }
+                stats.lastHitIdx = foundIdx;
+                stats.nextCheckpointIndex = (foundIdx + 1) % checkpoints.size();
+            }
+        }
+    }
+
     void updateRaceLogic(float deltaTime) {
         if (!isRaceStarted || raceFinished || checkpoints.size() < 2) return;
 
         try {
-            auto* player = findEntityByName(world, "player");
-            auto* track = findTrack(world);
-            if (!player || !track) return;
-
-            glm::vec3 playerPos = player->localTransform.position;
-
-            // Wait for player to cross the start line (checkpoint 0) before starting logic
-            if (!crossedStartLine) {
-                if (!checkpoints.empty()) {
-                    float dist = glm::distance(playerPos, checkpoints[0].pos);
-                    if (dist < checkpoints[0].radius) {
-                        crossedStartLine = true;
-                        lastHitIdx = 0;
-                        totalRaceTime = 0.0f;
-                        currentLapTime = 0.0f;
-                        nextCheckpointIndex = 1 % checkpoints.size();
-                    }
-                }
-                return;
+            auto* player1 = findEntityByName(world, "player");
+            if (player1 && !player1Stats.raceFinished) {
+                updatePlayerRaceLogic(player1Stats, player1, deltaTime);
             }
 
-            totalRaceTime += (float)deltaTime;
-            currentLapTime += (float)deltaTime;
-
-            // 1. Off-track penalty (Disabled for now)
-            /*
-            float y;
-            our::TrackHeightfieldComponent::SurfaceType surface;
-            if (track->sampleSurface(playerPos.x, playerPos.z, y, surface)) {
-                if (surface == our::TrackHeightfieldComponent::SurfaceType::Grass) {
-                    totalPenaltyTime += (float)deltaTime * 1.0f; 
-                }
-            }
-            */
-            // 2. Checkpoint tracking
-            if (!checkpoints.empty()) {
-                int foundIdx = -1;
-                // Search forward up to half the track.
-                // This prevents hitting the 'end' checkpoint while standing at the 'start' 
-                // if they are recorded at the same physical location.
-                int searchRange = std::max(1, (int)checkpoints.size() / 2);
-                for (int i = 0; i < searchRange; ++i) {
-                    int idx = (nextCheckpointIndex + i) % checkpoints.size();
-                    float dist = glm::distance(playerPos, checkpoints[idx].pos);
-                    if (dist < checkpoints[idx].radius) {
-                        foundIdx = idx;
-                        break;
-                    }
-                }
-
-                if (foundIdx != -1 && foundIdx != lastHitIdx) {
-                    // Calculate how many were skipped
-                    int numSkipped = 0;
-                    if (foundIdx >= nextCheckpointIndex) {
-                        numSkipped = foundIdx - nextCheckpointIndex;
-                    } else {
-                        // Skipping across the finish line
-                        numSkipped = ((int)checkpoints.size() - nextCheckpointIndex) + foundIdx;
-                    }
-
-                    if (numSkipped > 0) {
-                        totalPenaltyTime += (float)numSkipped * 20.0f; 
-                    }
-
-                    // Check for lap completion
-                    // A lap is completed if we wrap around the finish line.
-                    if (foundIdx < nextCheckpointIndex || (foundIdx == 0 && nextCheckpointIndex == 0)) {
-                        if (bestLapTime == 0.0f || currentLapTime < bestLapTime) bestLapTime = currentLapTime;
-                        if (currentLap >= totalLaps) {
-                            raceFinished = true;
-                        } else {
-                            currentLap++;
-                            currentLapTime = 0.0f;
-                        }
-                    }
-                    lastHitIdx = foundIdx;
-                    nextCheckpointIndex = (foundIdx + 1) % checkpoints.size();
+            if (getApp()->getIsMultiplayer()) {
+                auto* player2 = findEntityByName(world, "player2");
+                if (player2 && !player2Stats.raceFinished) {
+                    updatePlayerRaceLogic(player2Stats, player2, deltaTime);
                 }
             }
 
-            // 3. AI Position Simulation
+            // AI Position Simulation (based on player 1)
             float progress = 0.0f;
-            if (!checkpoints.empty()) progress = (float)nextCheckpointIndex / (float)checkpoints.size();
+            if (!checkpoints.empty()) progress = (float)player1Stats.nextCheckpointIndex / (float)checkpoints.size();
             for (auto& ai : aiRacers) {
-                ai.totalTime = ai.lapTime * (float)(currentLap - 1 + progress);
+                ai.totalTime = ai.lapTime * (float)(player1Stats.currentLap - 1 + progress);
             }
 
-            float playerEffectiveTime = totalRaceTime + totalPenaltyTime;
-            int rank = 1;
+            float p1EffectiveTime = player1Stats.totalRaceTime + player1Stats.totalPenaltyTime;
+            int rank1 = 1;
             for (const auto& ai : aiRacers) {
-                if (ai.totalTime < playerEffectiveTime) rank++;
+                if (ai.totalTime < p1EffectiveTime) rank1++;
             }
-            playerPosition = rank;
+            player1Stats.playerPosition = rank1;
+
+            if (getApp()->getIsMultiplayer()) {
+                float p2EffectiveTime = player2Stats.totalRaceTime + player2Stats.totalPenaltyTime;
+                int rank2 = 1;
+                for (const auto& ai : aiRacers) {
+                    if (ai.totalTime < p2EffectiveTime) rank2++;
+                }
+                player2Stats.playerPosition = rank2;
+            }
+
+            if (player1Stats.raceFinished && (!getApp()->getIsMultiplayer() || player2Stats.raceFinished)) {
+                raceFinished = true;
+            }
+
         } catch (...) {
-            // Silently ignore logic errors to prevent black screen (rendering will still happen)
+            // Silently ignore logic errors
         }
     }
 
@@ -499,7 +513,7 @@ class Playstate: public our::State {
         return stats;
     }
 
-    static nlohmann::json buildWorldWithPresets(const nlohmann::json& sceneConfig, const std::string& carId, const std::string& trackId){
+    static nlohmann::json buildWorldWithPresets(const nlohmann::json& sceneConfig, const std::string& carId, const std::string& trackId, bool isMultiplayer){
         nlohmann::json out = nlohmann::json::array();
 
         // Start from the configured world but remove any hardcoded player/track to avoid duplicates.
@@ -508,7 +522,27 @@ class Playstate: public our::State {
                 if(!e.is_object()) continue;
                 const std::string name = e.value("name", std::string{});
                 if(name == "player" || name == "track") continue;
-                out.push_back(e);
+
+                if(name == "main_camera"){
+                    nlohmann::json camera1 = e;
+                    camera1["name"] = "main_camera";
+                    out.push_back(std::move(camera1));
+
+                    if (isMultiplayer) {
+                        nlohmann::json camera2 = e;
+                        camera2["name"] = "camera2";
+                        if(camera2.contains("components") && camera2["components"].is_array()){
+                            for(auto& comp : camera2["components"]){
+                                if(comp.is_object() && comp.value("type", "") == "Chase Camera"){
+                                    comp["target"] = "player2";
+                                }
+                            }
+                        }
+                        out.push_back(std::move(camera2));
+                    }
+                } else {
+                    out.push_back(e);
+                }
             }
         }
 
@@ -571,7 +605,18 @@ class Playstate: public our::State {
                 }
             }
 
-            out.push_back(std::move(player));
+            if (isMultiplayer) {
+                // Create player 2
+                nlohmann::json player2 = player;
+                player2["name"] = "player2";
+                if(player2.contains("position") && player2["position"].is_array() && player2["position"].size() >= 3){
+                    player2["position"][0] = player2["position"][0].get<float>() + 4.0f;
+                }
+                out.push_back(std::move(player));
+                out.push_back(std::move(player2));
+            } else {
+                out.push_back(std::move(player));
+            }
         }
 
         return out;
@@ -592,7 +637,7 @@ class Playstate: public our::State {
         currentTrackId = trackId;
 
         if(config.contains("presets")){
-            world.deserialize(buildWorldWithPresets(config, carId, trackId));
+            world.deserialize(buildWorldWithPresets(config, carId, trackId, getApp()->getIsMultiplayer()));
         } else if(config.contains("world")){
             // Backwards-compatible path.
             world.deserialize(config["world"]);
@@ -625,12 +670,8 @@ class Playstate: public our::State {
         introAudioDone = false;
 
         raceFinished = false;
-        currentLap = 1;
-        currentLapTime = 0.0f;
-        totalRaceTime = 0.0f;
-        totalPenaltyTime = 0.0f;
-        crossedStartLine = false;
-        lastHitIdx = -1;
+        player1Stats = PlayerStats();
+        player2Stats = PlayerStats();
         loadCheckpoints();
         initAiRacers();
     }
@@ -716,6 +757,9 @@ class Playstate: public our::State {
         flags |= ImGuiWindowFlags_NoNav;
 
         if(ImGui::Begin("Coordinates", nullptr, flags)){
+            ImGui::Text("FPS  %.1f", ImGui::GetIO().Framerate);
+            ImGui::Separator();
+            
             our::Entity* target = freeRoaming ? findEntityByName(world, "main_camera") : findEntityByName(world, "player");
             if(target){
                 const glm::mat4 M = target->getLocalToWorldMatrix();
@@ -727,49 +771,19 @@ class Playstate: public our::State {
             } else {
                 ImGui::TextUnformatted("target not found");
             }
-
-            ImGui::Dummy(ImVec2(0.0f, 4.0f));
-
-            // Simple 2D axis widget (world axes): +X right (red), +Y up-left (green), +Z down (blue)
-            const ImVec2 cursor = ImGui::GetCursorScreenPos();
-            const ImVec2 origin(cursor.x + 18.0f, cursor.y + 18.0f);
-            const float s = 28.0f;
-
-            ImDrawList* dl = ImGui::GetWindowDrawList();
-            dl->AddCircleFilled(origin, 2.5f, IM_COL32(255, 255, 255, 220));
-
-            const ImVec2 xEnd(origin.x + s, origin.y);
-            const ImVec2 zEnd(origin.x, origin.y + s);
-            const ImVec2 yEnd(origin.x + (-0.7f * s), origin.y + (-0.7f * s));
-
-            dl->AddLine(origin, xEnd, IM_COL32(220, 60, 60, 255), 2.0f);
-            dl->AddLine(origin, yEnd, IM_COL32(60, 220, 60, 255), 2.0f);
-            dl->AddLine(origin, zEnd, IM_COL32(60, 120, 240, 255), 2.0f);
-
-            dl->AddText(ImVec2(xEnd.x + 4.0f, xEnd.y - 8.0f), IM_COL32(220, 60, 60, 255), "X");
-            dl->AddText(ImVec2(yEnd.x - 8.0f, yEnd.y - 12.0f), IM_COL32(60, 220, 60, 255), "Y");
-            dl->AddText(ImVec2(zEnd.x + 4.0f, zEnd.y - 8.0f), IM_COL32(60, 120, 240, 255), "Z");
-
-            // Reserve space for the widget so the window sizes correctly.
-            ImGui::Dummy(ImVec2(2.0f * s, 1.4f * s));
         }
         ImGui::End();
 
-        // Bottom-left speedometer HUD.
+        // Speedometer HUD.
         {
             const ImVec2 display = ImGui::GetIO().DisplaySize;
 
-            ImGui::SetNextWindowPos(ImVec2(10.0f, std::max(10.0f, display.y - 70.0f)), ImGuiCond_Always);
+            ImGuiWindowFlags spdFlags = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav;
+
+            // Player 1 Speedometer
+            ImGui::SetNextWindowPos(ImVec2(10.0f, getApp()->getIsMultiplayer() ? (display.y * 0.5f - 70.0f) : (display.y - 70.0f)), ImGuiCond_Always);
             ImGui::SetNextWindowBgAlpha(0.35f);
-
-            ImGuiWindowFlags spdFlags = 0;
-            spdFlags |= ImGuiWindowFlags_NoDecoration;
-            spdFlags |= ImGuiWindowFlags_AlwaysAutoResize;
-            spdFlags |= ImGuiWindowFlags_NoSavedSettings;
-            spdFlags |= ImGuiWindowFlags_NoFocusOnAppearing;
-            spdFlags |= ImGuiWindowFlags_NoNav;
-
-            if(ImGui::Begin("Speed", nullptr, spdFlags)){
+            if(ImGui::Begin("Speed P1", nullptr, spdFlags)){
                 auto* player = findEntityByName(world, "player");
                 if(player){
                     auto* car = player->getComponent<our::CarControllerComponent>();
@@ -777,15 +791,38 @@ class Playstate: public our::State {
                         const float speedMS = std::abs(car->speed);
                         const float speedKMH = speedMS * 3.6f * 1.5f;
                         const bool reversing = (car->speed < -0.1f);
-                        ImGui::Text("%s  %.1f km/h", reversing ? "R" : "D", speedKMH);
+                        ImGui::Text("P1: %s  %.1f km/h", reversing ? "R" : "D", speedKMH);
                     } else {
-                        ImGui::TextUnformatted("no car controller");
+                        ImGui::TextUnformatted("P1: no car controller");
                     }
                 } else {
-                    ImGui::TextUnformatted("player not found");
+                    ImGui::TextUnformatted("P1 not found");
                 }
             }
             ImGui::End();
+
+            // Player 2 Speedometer
+            if (getApp()->getIsMultiplayer()) {
+                ImGui::SetNextWindowPos(ImVec2(10.0f, display.y - 70.0f), ImGuiCond_Always);
+                ImGui::SetNextWindowBgAlpha(0.35f);
+                if(ImGui::Begin("Speed P2", nullptr, spdFlags)){
+                    auto* player2 = findEntityByName(world, "player2");
+                    if(player2){
+                        auto* car = player2->getComponent<our::CarControllerComponent>();
+                        if(car){
+                            const float speedMS = std::abs(car->speed);
+                            const float speedKMH = speedMS * 3.6f * 1.5f;
+                            const bool reversing = (car->speed < -0.1f);
+                            ImGui::Text("P2: %s  %.1f km/h", reversing ? "R" : "D", speedKMH);
+                        } else {
+                            ImGui::TextUnformatted("P2: no car controller");
+                        }
+                    } else {
+                        ImGui::TextUnformatted("P2 not found");
+                    }
+                }
+                ImGui::End();
+            }
         }
 
         // Countdown timer display
@@ -879,45 +916,71 @@ class Playstate: public our::State {
         // Race HUD
         {
             const ImVec2 display = ImGui::GetIO().DisplaySize;
+            ImGuiWindowFlags raceFlags = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav;
+
+            // Player 1 Race HUD
             ImGui::SetNextWindowPos(ImVec2(display.x * 0.5f, 30.0f), ImGuiCond_Always, ImVec2(0.5f, 0.0f));
             ImGui::SetNextWindowBgAlpha(0.35f);
-            
-            ImGuiWindowFlags raceFlags = 0;
-            raceFlags |= ImGuiWindowFlags_NoDecoration;
-            raceFlags |= ImGuiWindowFlags_AlwaysAutoResize;
-            raceFlags |= ImGuiWindowFlags_NoSavedSettings;
-            raceFlags |= ImGuiWindowFlags_NoFocusOnAppearing;
-            raceFlags |= ImGuiWindowFlags_NoNav;
-
-            if(ImGui::Begin("Race HUD", nullptr, raceFlags)){
+            if(ImGui::Begin("Race HUD P1", nullptr, raceFlags)){
                 ImGui::SetWindowFontScale(1.5f);
-                if (!crossedStartLine) {
-                    ImGui::TextColored(ImVec4(1.0f, 1.0f, 0.2f, 1.0f), "CROSS THE START LINE!");
+                if (!player1Stats.crossedStartLine) {
+                    ImGui::TextColored(ImVec4(1.0f, 1.0f, 0.2f, 1.0f), "P1: CROSS THE START LINE!");
                 } else {
-                    ImGui::Text("Lap: %d / %d", currentLap, totalLaps);
+                    ImGui::Text("P1 Lap: %d / %d", player1Stats.currentLap, totalLaps);
                     ImGui::SameLine(200);
-                    ImGui::Text("Pos: %d / %d", playerPosition, (int)aiRacers.size() + 1);
+                    ImGui::Text("Pos: %d / %d", player1Stats.playerPosition, (int)aiRacers.size() + 1);
                 }
                 
                 ImGui::Separator();
-                
-                ImGui::Text("Time: %.2f", currentLapTime);
-                if(bestLapTime > 0) {
+                ImGui::Text("Time: %.2f", player1Stats.currentLapTime);
+                if(player1Stats.bestLapTime > 0) {
                     ImGui::SameLine(200);
-                    ImGui::Text("Best: %.2f", bestLapTime);
+                    ImGui::Text("Best: %.2f", player1Stats.bestLapTime);
                 }
                 
-                if(totalPenaltyTime > 0) {
-                    ImGui::TextColored(ImVec4(1.0f, 0.3f, 0.3f, 1.0f), "Penalty: +%.1fs", totalPenaltyTime);
+                if(player1Stats.totalPenaltyTime > 0) {
+                    ImGui::TextColored(ImVec4(1.0f, 0.3f, 0.3f, 1.0f), "Penalty: +%.1fs", player1Stats.totalPenaltyTime);
                 }
-
-                if(raceFinished) {
+                
+                if(player1Stats.raceFinished) {
                     ImGui::Separator();
-                    ImGui::TextColored(ImVec4(0.2f, 1.0f, 0.2f, 1.0f), "RACE FINISHED!");
-                    ImGui::Text("Final Rank: %d", playerPosition);
+                    ImGui::TextColored(ImVec4(0.2f, 1.0f, 0.2f, 1.0f), "P1 RACE FINISHED!");
                 }
             }
             ImGui::End();
+
+            // Player 2 Race HUD
+            if (getApp()->getIsMultiplayer()) {
+                ImGui::SetNextWindowPos(ImVec2(display.x * 0.5f, display.y * 0.5f + 30.0f), ImGuiCond_Always, ImVec2(0.5f, 0.0f));
+                ImGui::SetNextWindowBgAlpha(0.35f);
+                if(ImGui::Begin("Race HUD P2", nullptr, raceFlags)){
+                    ImGui::SetWindowFontScale(1.5f);
+                    if (!player2Stats.crossedStartLine) {
+                        ImGui::TextColored(ImVec4(1.0f, 1.0f, 0.2f, 1.0f), "P2: CROSS THE START LINE!");
+                    } else {
+                        ImGui::Text("P2 Lap: %d / %d", player2Stats.currentLap, totalLaps);
+                        ImGui::SameLine(200);
+                        ImGui::Text("Pos: %d / %d", player2Stats.playerPosition, (int)aiRacers.size() + 1);
+                    }
+                    
+                    ImGui::Separator();
+                    ImGui::Text("Time: %.2f", player2Stats.currentLapTime);
+                    if(player2Stats.bestLapTime > 0) {
+                        ImGui::SameLine(200);
+                        ImGui::Text("Best: %.2f", player2Stats.bestLapTime);
+                    }
+                    
+                    if(player2Stats.totalPenaltyTime > 0) {
+                        ImGui::TextColored(ImVec4(1.0f, 0.3f, 0.3f, 1.0f), "Penalty: +%.1fs", player2Stats.totalPenaltyTime);
+                    }
+                    
+                    if(player2Stats.raceFinished) {
+                        ImGui::Separator();
+                        ImGui::TextColored(ImVec4(0.2f, 1.0f, 0.2f, 1.0f), "P2 RACE FINISHED!");
+                    }
+                }
+                ImGui::End();
+            }
         }
     }
 

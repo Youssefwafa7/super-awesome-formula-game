@@ -62,6 +62,7 @@ namespace our {
         // Selected presets (configured via menu). Defaults are read from app_config["scene"]["selection"].
         std::string selectedCarPreset;
         std::string selectedTrackPreset;
+        bool isMultiplayer = false;
 
         std::unordered_map<std::string, State*> states;   // This will store all the states that the application can run
         State * currentState = nullptr;         // This will store the current scene that is being run
@@ -138,6 +139,8 @@ namespace our {
         void setSelectedTrackPreset(std::string id){ selectedTrackPreset = std::move(id); }
         [[nodiscard]] const std::string& getSelectedCarPreset() const { return selectedCarPreset; }
         [[nodiscard]] const std::string& getSelectedTrackPreset() const { return selectedTrackPreset; }
+        void setIsMultiplayer(bool val) { isMultiplayer = val; }
+        [[nodiscard]] bool getIsMultiplayer() const { return isMultiplayer; }
 
         // Get the size of the frame buffer of the window in pixels.
         glm::ivec2 getFrameBufferSize() {

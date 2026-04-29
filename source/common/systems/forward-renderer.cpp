@@ -224,8 +224,8 @@ namespace our {
     }
 
     void ForwardRenderer::render(World* world){
-        // First of all, we search for a camera and for all the mesh renderers
-        CameraComponent* camera = nullptr;
+        // First of all, we search for cameras and for all the mesh renderers
+        std::vector<CameraComponent*> cameras;
         opaqueCommands.clear();
         transparentCommands.clear();
 
@@ -234,8 +234,9 @@ namespace our {
         lights.reserve(MAX_LIGHTS);
 
         for(auto entity : world->getEntities()){
-            // If we hadn't found a camera yet, we look for a camera in this entity
-            if(!camera) camera = entity->getComponent<CameraComponent>();
+            if(auto cam = entity->getComponent<CameraComponent>()){
+                cameras.push_back(cam);
+            }
 
             if(auto light = entity->getComponent<LightComponent>(); light){
                 if((int)lights.size() < MAX_LIGHTS){
@@ -308,149 +309,135 @@ namespace our {
             lights.push_back(sun);
         }
 
-        // If there is no camera, we return (we cannot render without a camera)
-        if(camera == nullptr) return;
+        if(cameras.empty()) return;
 
-        //TODO: (Req 9) Modify the following line such that "cameraForward" contains a vector pointing the camera forward direction
-        // HINT: See how you wrote the CameraComponent::getViewMatrix, it should help you solve this one
-        auto M = camera->getOwner()->getLocalToWorldMatrix();
-        glm::vec3 eye = glm::vec3(M * glm::vec4(0, 0, 0, 1));
-        glm::vec3 center = glm::vec3(M * glm::vec4(0, 0, -1, 1));
-        glm::vec3 cameraForward = glm::normalize(center - eye);
-        std::sort(transparentCommands.begin(), transparentCommands.end(), [cameraForward](const RenderCommand& first, const RenderCommand& second){
-            //TODO: (Req 9) Finish this function
-            // HINT: the following return should return true "first" should be drawn before "second". 
-            float firstDistance = glm::dot(first.center, cameraForward);
-            float secondDistance = glm::dot(second.center, cameraForward);
-            return firstDistance > secondDistance;
-        });
-
-        //TODO: (Req 9) Get the camera ViewProjection matrix and store it in VP
-        glm::mat4 VP = camera->getProjectionMatrix(windowSize) * camera->getViewMatrix();
-
-        //TODO: (Req 9) Set the OpenGL viewport using viewportStart and viewportSize
-        glViewport(0, 0, windowSize.x, windowSize.y);
-        
-        //TODO: (Req 9) Set the clear color to black and the clear depth to 1
+        // Clear EVERYTHING ONCE at the start!
         glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
         glClearDepth(1.0f);
-        
-        //TODO: (Req 9) Set the color mask to true and the depth mask to true (to ensure the glClear will affect the framebuffer)
         glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
         glDepthMask(GL_TRUE);
 
-        // If there is a postprocess material, bind the framebuffer
         if(postprocessMaterial){
-            //TODO: (Req 11) bind the framebuffer
             glBindFramebuffer(GL_FRAMEBUFFER, postprocessFrameBuffer);
         }
-
-        //TODO: (Req 9) Clear the color and depth buffers
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-        
-        //TODO: (Req 9) Draw all the opaque commands
-        // Don't forget to set the "transform" uniform to be equal the model-view-projection matrix for each render command
-        for(auto& command : opaqueCommands){
-            glm::mat4 transform = VP * command.localToWorld;
-            command.material->setup();
-            command.material->shader->set("transform", transform);
-            command.material->shader->set("model", command.localToWorld);
-            command.material->shader->set("cameraPosition", eye);
-            command.material->shader->set("ambientColor", ambientColor);
-            command.material->shader->set("ambientIntensity", ambientIntensity);
 
-            command.material->shader->set("lightCount", (GLint)lights.size());
-            for(size_t i = 0; i < lights.size(); i++){
-                const auto& l = lights[i];
-                const std::string idx = std::to_string(i);
-                command.material->shader->set("lightType[" + idx + "]", (GLint)l.type);
-                command.material->shader->set("lightColor[" + idx + "]", l.color);
-                command.material->shader->set("lightIntensity[" + idx + "]", l.intensity);
-                command.material->shader->set("lightPosition[" + idx + "]", l.position);
-                command.material->shader->set("lightDirection[" + idx + "]", l.direction);
-                command.material->shader->set("lightAttenuation[" + idx + "]", l.attenuation);
-                command.material->shader->set("lightConeCos[" + idx + "]", l.coneCos);
-                command.material->shader->set("lightCastsShadows[" + idx + "]", (GLint)l.castsShadows);
+        // Render for each camera
+        for(size_t camIdx = 0; camIdx < cameras.size(); camIdx++){
+            CameraComponent* camera = cameras[camIdx];
+
+            glm::ivec2 vpSize = windowSize;
+            if(cameras.size() == 2){
+                vpSize.y /= 2;
+                if(camIdx == 0){
+                    glViewport(0, windowSize.y / 2, windowSize.x, windowSize.y / 2);
+                } else {
+                    glViewport(0, 0, windowSize.x, windowSize.y / 2);
+                }
+            } else {
+                glViewport(0, 0, windowSize.x, windowSize.y);
             }
-            command.mesh->draw();
-        }
-        // If there is a sky material, draw the sky
-        if(this->skyMaterial){
-            //TODO: (Req 10) setup the sky material
-            skyMaterial->setup();
-            //TODO: (Req 10) Get the camera position
-            glm::vec3 camPosition = eye;
 
-            //TODO: (Req 10) Create a model matrix for the sy such that it always follows the camera (sky sphere center = camera position)
-            glm::mat4 skyModelMatrix = glm::translate(glm::mat4(1.0f), camPosition);
+            auto M = camera->getOwner()->getLocalToWorldMatrix();
+            glm::vec3 eye = glm::vec3(M * glm::vec4(0, 0, 0, 1));
+            glm::vec3 center = glm::vec3(M * glm::vec4(0, 0, -1, 1));
+            glm::vec3 cameraForward = glm::normalize(center - eye);
+            std::sort(transparentCommands.begin(), transparentCommands.end(), [cameraForward](const RenderCommand& first, const RenderCommand& second){
+                float firstDistance = glm::dot(first.center, cameraForward);
+                float secondDistance = glm::dot(second.center, cameraForward);
+                return firstDistance > secondDistance;
+            });
 
-            //TODO: (Req 10) We want the sky to be drawn behind everything (in NDC space, z=1)
-            // We can acheive the is by multiplying by an extra matrix after the projection but what values should we put in it?
-            glm::mat4 alwaysBehindTransform = glm::mat4(
-                1.0f, 0.0f, 0.0f, 0.0f,
-                0.0f, 1.0f, 0.0f, 0.0f,
-                0.0f, 0.0f, 0.0f, 0.0f,
-                0.0f, 0.0f, 1.0f, 1.0f
-            );
-            //TODO: (Req 10) set the "transform" uniform
-            skyMaterial->shader->set("transform", alwaysBehindTransform * camera->getProjectionMatrix(windowSize) * camera->getViewMatrix() * skyModelMatrix);
-            //TODO: (Req 10) draw the sky sphere
-            skySphere->draw();
-        }
+            glm::mat4 VP = camera->getProjectionMatrix(vpSize) * camera->getViewMatrix();
 
-        // If there is a sun material, draw the sun sphere in front of the sky but behind all geometry
-        if(this->sunMaterial){
-            sunMaterial->setup();
+            // Draw all the opaque commands
+            for(auto& command : opaqueCommands){
+                glm::mat4 transform = VP * command.localToWorld;
+                command.material->setup();
+                command.material->shader->set("transform", transform);
+                command.material->shader->set("model", command.localToWorld);
+                command.material->shader->set("cameraPosition", eye);
+                command.material->shader->set("ambientColor", ambientColor);
+                command.material->shader->set("ambientIntensity", ambientIntensity);
 
-            // Directional sun: fixed world ray direction. Visual sun is opposite the ray direction.
-            glm::vec3 sunCenter = eye + (-sunDirectionWorld) * sunDistance;
-            glm::mat4 sunModelMatrix = glm::translate(glm::mat4(1.0f), sunCenter) * glm::scale(glm::mat4(1.0f), glm::vec3(sunScale));
-
-            glm::mat4 alwaysBehindTransform = glm::mat4(
-                1.0f, 0.0f, 0.0f, 0.0f,
-                0.0f, 1.0f, 0.0f, 0.0f,
-                0.0f, 0.0f, 0.0f, 0.0f,
-                0.0f, 0.0f, 1.0f, 1.0f
-            );
-
-            sunMaterial->shader->set("transform", alwaysBehindTransform * camera->getProjectionMatrix(windowSize) * camera->getViewMatrix() * sunModelMatrix);
-            sunSphere->draw();
-        }
-        //TODO: (Req 9) Draw all the transparent commands
-        // Don't forget to set the "transform" uniform to be equal the model-view-projection matrix for each render command
-        for(auto& command : transparentCommands){
-            glm::mat4 transform = VP * command.localToWorld;
-            command.material->setup();
-            command.material->shader->set("transform", transform);
-            command.material->shader->set("model", command.localToWorld);
-            command.material->shader->set("cameraPosition", eye);
-            command.material->shader->set("ambientColor", ambientColor);
-            command.material->shader->set("ambientIntensity", ambientIntensity);
-
-            command.material->shader->set("lightCount", (GLint)lights.size());
-            for(size_t i = 0; i < lights.size(); i++){
-                const auto& l = lights[i];
-                const std::string idx = std::to_string(i);
-                command.material->shader->set("lightType[" + idx + "]", (GLint)l.type);
-                command.material->shader->set("lightColor[" + idx + "]", l.color);
-                command.material->shader->set("lightIntensity[" + idx + "]", l.intensity);
-                command.material->shader->set("lightPosition[" + idx + "]", l.position);
-                command.material->shader->set("lightDirection[" + idx + "]", l.direction);
-                command.material->shader->set("lightAttenuation[" + idx + "]", l.attenuation);
-                command.material->shader->set("lightConeCos[" + idx + "]", l.coneCos);
-                command.material->shader->set("lightCastsShadows[" + idx + "]", (GLint)l.castsShadows);
+                command.material->shader->set("lightCount", (GLint)lights.size());
+                for(size_t i = 0; i < lights.size(); i++){
+                    const auto& l = lights[i];
+                    const std::string idx = std::to_string(i);
+                    command.material->shader->set("lightType[" + idx + "]", (GLint)l.type);
+                    command.material->shader->set("lightColor[" + idx + "]", l.color);
+                    command.material->shader->set("lightIntensity[" + idx + "]", l.intensity);
+                    command.material->shader->set("lightPosition[" + idx + "]", l.position);
+                    command.material->shader->set("lightDirection[" + idx + "]", l.direction);
+                    command.material->shader->set("lightAttenuation[" + idx + "]", l.attenuation);
+                    command.material->shader->set("lightConeCos[" + idx + "]", l.coneCos);
+                    command.material->shader->set("lightCastsShadows[" + idx + "]", (GLint)l.castsShadows);
+                }
+                command.mesh->draw();
             }
-            command.mesh->draw();
+            // If there is a sky material, draw the sky
+            if(this->skyMaterial){
+                skyMaterial->setup();
+                glm::vec3 camPosition = eye;
+                glm::mat4 skyModelMatrix = glm::translate(glm::mat4(1.0f), camPosition);
+                glm::mat4 alwaysBehindTransform = glm::mat4(
+                    1.0f, 0.0f, 0.0f, 0.0f,
+                    0.0f, 1.0f, 0.0f, 0.0f,
+                    0.0f, 0.0f, 0.0f, 0.0f,
+                    0.0f, 0.0f, 1.0f, 1.0f
+                );
+                skyMaterial->shader->set("transform", alwaysBehindTransform * camera->getProjectionMatrix(vpSize) * camera->getViewMatrix() * skyModelMatrix);
+                skySphere->draw();
+            }
+
+            // If there is a sun material, draw the sun sphere in front of the sky but behind all geometry
+            if(this->sunMaterial){
+                sunMaterial->setup();
+                glm::vec3 sunCenter = eye + (-sunDirectionWorld) * sunDistance;
+                glm::mat4 sunModelMatrix = glm::translate(glm::mat4(1.0f), sunCenter) * glm::scale(glm::mat4(1.0f), glm::vec3(sunScale));
+                glm::mat4 alwaysBehindTransform = glm::mat4(
+                    1.0f, 0.0f, 0.0f, 0.0f,
+                    0.0f, 1.0f, 0.0f, 0.0f,
+                    0.0f, 0.0f, 0.0f, 0.0f,
+                    0.0f, 0.0f, 1.0f, 1.0f
+                );
+                sunMaterial->shader->set("transform", alwaysBehindTransform * camera->getProjectionMatrix(vpSize) * camera->getViewMatrix() * sunModelMatrix);
+                sunSphere->draw();
+            }
+            // Draw all the transparent commands
+            for(auto& command : transparentCommands){
+                glm::mat4 transform = VP * command.localToWorld;
+                command.material->setup();
+                command.material->shader->set("transform", transform);
+                command.material->shader->set("model", command.localToWorld);
+                command.material->shader->set("cameraPosition", eye);
+                command.material->shader->set("ambientColor", ambientColor);
+                command.material->shader->set("ambientIntensity", ambientIntensity);
+
+                command.material->shader->set("lightCount", (GLint)lights.size());
+                for(size_t i = 0; i < lights.size(); i++){
+                    const auto& l = lights[i];
+                    const std::string idx = std::to_string(i);
+                    command.material->shader->set("lightType[" + idx + "]", (GLint)l.type);
+                    command.material->shader->set("lightColor[" + idx + "]", l.color);
+                    command.material->shader->set("lightIntensity[" + idx + "]", l.intensity);
+                    command.material->shader->set("lightPosition[" + idx + "]", l.position);
+                    command.material->shader->set("lightDirection[" + idx + "]", l.direction);
+                    command.material->shader->set("lightAttenuation[" + idx + "]", l.attenuation);
+                    command.material->shader->set("lightConeCos[" + idx + "]", l.coneCos);
+                    command.material->shader->set("lightCastsShadows[" + idx + "]", (GLint)l.castsShadows);
+                }
+                command.mesh->draw();
+            }
         }
 
-        // If there is a postprocess material, apply postprocessing
+        // Apply postprocessing ONCE at the end
         if(postprocessMaterial){
-            //TODO: (Req 11) Return to the default framebuffer
             glBindFramebuffer(GL_FRAMEBUFFER, 0);
-            //TODO: (Req 11) Setup the postprocess material and draw the fullscreen triangle
             postprocessMaterial->setup();
             postprocessMaterial->shader->set("transform", glm::mat4(1.0f));
             glBindVertexArray(postProcessVertexArray);
+            glViewport(0, 0, windowSize.x, windowSize.y);
             glDrawArrays(GL_TRIANGLES, 0, 3);
         }
     }

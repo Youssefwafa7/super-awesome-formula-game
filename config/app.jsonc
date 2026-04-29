@@ -454,8 +454,8 @@
         "position": [0, 0, 10],
         "components": [
           {
-            "type": "Camera",
-            "far": 1000.0
+            "type": "Camera"
+            // "far": 1000.0
           },
           {
             "type": "Chase Camera",
