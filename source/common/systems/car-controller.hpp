@@ -7,6 +7,8 @@
 #include "../components/multi-mesh-renderer.hpp"
 
 #include <glm/gtx/euler_angles.hpp>
+#include <glm/gtc/quaternion.hpp>
+#include <glm/gtx/quaternion.hpp>
 
 #include <algorithm>
 #include <cctype>
@@ -325,6 +327,54 @@ namespace our {
             car._cachedFrontWheelParts = true;
         }
 
+        // Compute the car's pitch from the drivable surface triangle directly
+        // beneath it. Pitch only (no roll). Uses simple lerp for smooth blending.
+        static void applySlopeAlignment(
+            const TrackHeightfieldComponent* track,
+            CarControllerComponent* car,
+            Transform& transform,
+            float deltaTime
+        ) {
+            if(track == nullptr || car == nullptr) return;
+
+            float surfY;
+            glm::vec3 surfNormal;
+            const bool hasSurface = track->sampleDrivableSurface(
+                transform.position.x, transform.position.z, surfY, surfNormal
+            );
+
+            float targetPitch = 0.0f; // default: flat
+
+            if(hasSurface){
+                // Ensure normal points upward
+                if(surfNormal.y < 0.0f) surfNormal = -surfNormal;
+                const float ny = surfNormal.y;
+
+                // Only compute pitch if the normal isn't perfectly vertical
+                if(ny > 1e-4f && ny < 0.9999f){
+                    // Get the car's XZ forward direction from its yaw
+                    const glm::vec3 fwd = getForward(transform.rotation.y);
+
+                    // The slope along the forward direction:
+                    // slope = -(nx*fx + nz*fz) / ny
+                    // pitch = atan(slope)
+                    const float slopeAlongForward = -(surfNormal.x * fwd.x + surfNormal.z * fwd.z) / ny;
+                    targetPitch = -std::atan(slopeAlongForward);
+                }
+
+                // Clamp
+                targetPitch = std::clamp(targetPitch, -car->maxPitchAngle, car->maxPitchAngle);
+            }
+
+            // Smooth toward target pitch (frame-rate independent exponential lerp)
+            const float alpha = 1.0f - std::exp(-car->slopeSmoothingSpeed * deltaTime);
+            const float currentPitch = transform.rotation.x;
+            transform.rotation.x = currentPitch + (targetPitch - currentPitch) * alpha;
+
+            // No roll
+            transform.rotation.z = 0.0f;
+        }
+
     public:
         void enter(Application* application){ app = application; }
 
@@ -516,6 +566,9 @@ namespace our {
 
                 // Visual wheel steering angle (independent of movement).
                 car->steeringAngle = steer * glm::radians(car->wheelSteerMaxAngle);
+
+                // Surface alignment: pitch and roll to match drivable surface normal.
+                applySlopeAlignment(track, car, transform, deltaTime);
 
                 // Front wheel steering animation (if MultiMeshRenderer exists).
                 if(auto* multi = entity->getComponent<MultiMeshRendererComponent>()){

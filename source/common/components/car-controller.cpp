@@ -25,6 +25,9 @@ namespace our {
         maxClimbHeight = data.value("maxClimbHeight", maxClimbHeight);
         wheelSteerMaxAngle = data.value("wheelSteerMaxAngle", wheelSteerMaxAngle);
         groundClearance = data.value("groundClearance", groundClearance);
+        slopeSmoothingSpeed = data.value("slopeSmoothingSpeed", slopeSmoothingSpeed);
+        maxPitchAngle = data.value("maxPitchAngle", maxPitchAngle);
+        maxRollAngle = data.value("maxRollAngle", maxRollAngle);
 
         grassSpeedFactor = std::max(0.2f, grassSpeedFactor);
         grassDamping = std::max(0.0f, grassDamping);

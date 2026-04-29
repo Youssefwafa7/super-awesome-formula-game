@@ -17,7 +17,7 @@
 #include <vector>
 #include <cstdio>
 
-#define NUM_TRACK_PRESETS 2
+#define NUM_TRACK_PRESETS 3
 #define NUM_CAR_PRESETS 2
 
 struct Button
@@ -141,7 +141,6 @@ class Menustate : public our::State
     {
         int colorCount = 0;
         ImGui::PushStyleColor(ImGuiCol_WindowBg, kBgColor()); colorCount++;
-        // Theme defaults for buttons (Dark by default, Red on Hover)
         ImGui::PushStyleColor(ImGuiCol_Button, kButtonDark()); colorCount++;
         ImGui::PushStyleColor(ImGuiCol_ButtonHovered, kRedHover()); colorCount++;
         ImGui::PushStyleColor(ImGuiCol_ButtonActive, kRedActive()); colorCount++;
@@ -196,7 +195,6 @@ class Menustate : public our::State
         ImGui::Dummy(ImVec2(w, fontSize));
     }
 
-    // Centered button that forced RED hover look when keyboard-selected
     static bool buttonCentered(const char *label, const ImVec2 &size = ImVec2(220, 50), bool selected = false)
     {
         ImGui::SetCursorPosX((ImGui::GetWindowWidth() - size.x) * 0.5f);
@@ -279,9 +277,8 @@ class Menustate : public our::State
             if(bodyFont) ImGui::PushFont(bodyFont);
             ImGui::Dummy(ImVec2(0, 30));
 
-            const char *trackNames[] = {"Montreal", "Silverstone"};
             const int trackCount = (int)trackPresetIds.size();
-            const int displayCount = std::min(trackCount, 2);
+            const int displayCount = std::min(trackCount, NUM_TRACK_PRESETS);
 
             float cardW = 280.0f;
             float cardH = 120.0f;
@@ -296,7 +293,7 @@ class Menustate : public our::State
 
                 bool isSelected = (selectedTrackIndex == i);
                 bool isKeyboardSelected = keyboardNavActive && (selectedIndex == i);
-                const char *name = (i < 2) ? trackNames[i] : trackPresetLabels[i].c_str();
+                const char *name = trackPresetLabels[i].c_str();
 
                 if (isSelected || isKeyboardSelected)
                 {
@@ -327,25 +324,23 @@ class Menustate : public our::State
                 }
 
                 ImGui::PopStyleVar(1);
-                ImGui::PopStyleColor(isSelected || isKeyboardSelected ? 4 : 4);
+                ImGui::PopStyleColor(4);
             }
 
             ImGui::Dummy(ImVec2(0, 40));
 
-            // --- Navigation Buttons (BACK/NEXT) ---
             float navW = 160.0f;
             float navGap = 20.0f;
             float navStartX = (ImGui::GetWindowWidth() - 2 * navW - navGap) * 0.5f;
 
-            // BACK
+            // BACK - This is index 3 in a 3-track layout
             ImGui::SetCursorPosX(navStartX);
-            bool backActive = (keyboardNavActive && selectedIndex == 2);
+            bool backActive = (keyboardNavActive && selectedIndex == 3);
             if (backActive) {
                 ImGui::PushStyleColor(ImGuiCol_Button, kRedHover());
                 ImGui::PushStyleColor(ImGuiCol_Border, kTextWhite());
                 ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 2.0f);
             } 
-            // Else use theme default (Dark)
 
             if (ImGui::Button("< BACK", ImVec2(navW, 45))) {
                 currentScreen = MenuScreen::MAIN_MENU;
@@ -355,8 +350,8 @@ class Menustate : public our::State
 
             ImGui::SameLine(0, navGap);
 
-            // NEXT
-            bool nextActive = (keyboardNavActive && selectedIndex == 3);
+            // NEXT - This is index 4 in a 3-track layout
+            bool nextActive = (keyboardNavActive && selectedIndex == 4);
             if (nextActive) {
                 ImGui::PushStyleColor(ImGuiCol_Button, kRedHover());
                 ImGui::PushStyleColor(ImGuiCol_Border, kTextWhite());
@@ -395,9 +390,8 @@ class Menustate : public our::State
             if(bodyFont) ImGui::PushFont(bodyFont);
             ImGui::Dummy(ImVec2(0, 30));
 
-            const char *carNames[] = {"New Ferrari", "Old Ferrari"};
             const int carCount = (int)carPresetIds.size();
-            const int displayCount = std::min(carCount, 2);
+            const int displayCount = std::min(carCount, NUM_CAR_PRESETS);
 
             float cardW = 280.0f;
             float cardH = 120.0f;
@@ -412,7 +406,7 @@ class Menustate : public our::State
 
                 bool isSelected = (selectedCarIndex == i);
                 bool isKeyboardSelected = keyboardNavActive && (selectedIndex == i);
-                const char *name = (i < 2) ? carNames[i] : carPresetLabels[i].c_str();
+                const char *name = carPresetLabels[i].c_str();
 
                 if (isSelected || isKeyboardSelected)
                 {
@@ -443,17 +437,16 @@ class Menustate : public our::State
                 }
 
                 ImGui::PopStyleVar(1);
-                ImGui::PopStyleColor(isSelected || isKeyboardSelected ? 4 : 4);
+                ImGui::PopStyleColor(4);
             }
 
             ImGui::Dummy(ImVec2(0, 40));
 
-            // --- Navigation Buttons ---
             float navW = 160.0f;
             float navGap = 20.0f;
             float navStartX = (ImGui::GetWindowWidth() - 2 * navW - navGap) * 0.5f;
 
-            // BACK
+            // BACK - Index 2
             ImGui::SetCursorPosX(navStartX);
             bool backActive = (keyboardNavActive && selectedIndex == 2);
             if (backActive) {
@@ -470,7 +463,7 @@ class Menustate : public our::State
 
             ImGui::SameLine(0, navGap);
 
-            // START
+            // START - Index 3
             bool startActive = (keyboardNavActive && selectedIndex == 3);
             if (startActive) {
                 ImGui::PushStyleColor(ImGuiCol_Button, kRedHover());
@@ -600,16 +593,18 @@ class Menustate : public our::State
     {
         auto &keyboard = getApp()->getKeyboard();
         int itemCount = 0;
+        int presetsCount = (currentScreen == MenuScreen::TRACK_SELECT) ? NUM_TRACK_PRESETS : NUM_CAR_PRESETS;
+
         switch (currentScreen)
         {
         case MenuScreen::MAIN_MENU: itemCount = 2; break;
-        case MenuScreen::TRACK_SELECT: itemCount = 2 + NUM_TRACK_PRESETS; break;
-        case MenuScreen::CAR_SELECT: itemCount = 2 + NUM_CAR_PRESETS; break;
+        case MenuScreen::TRACK_SELECT: itemCount = 2 + NUM_TRACK_PRESETS; break; // 3 tracks + 2 btns = 5
+        case MenuScreen::CAR_SELECT: itemCount = 2 + NUM_CAR_PRESETS; break;     // 2 cars + 2 btns = 4
         }
 
-        int presetsCount = (currentScreen == MenuScreen::TRACK_SELECT) ? NUM_TRACK_PRESETS : NUM_CAR_PRESETS;
         bool isSpecialScreen = (currentScreen == MenuScreen::TRACK_SELECT || currentScreen == MenuScreen::CAR_SELECT);
 
+        // Vertical Navigation
         if (keyboard.justPressed(GLFW_KEY_DOWN) || keyboard.justPressed(GLFW_KEY_UP)) {
             bool down = keyboard.justPressed(GLFW_KEY_DOWN);
             keyboardNavActive = true;
@@ -617,20 +612,23 @@ class Menustate : public our::State
                 if ((down && selectedIndex < itemCount - 1) || (!down && selectedIndex > 0))
                     selectedIndex += down ? 1 : -1;
             } else if (isSpecialScreen) {
-                if (down && selectedIndex < presetsCount) selectedIndex = presetsCount;
-                else if (!down && selectedIndex >= presetsCount) selectedIndex = 0;
+                if (down && selectedIndex < presetsCount) selectedIndex = presetsCount; // Go to first button in bottom row
+                else if (!down && selectedIndex >= presetsCount) selectedIndex = 0;      // Go back to first preset
             }
         }
 
+        // Horizontal Navigation
         if (isSpecialScreen && (keyboard.justPressed(GLFW_KEY_RIGHT) || keyboard.justPressed(GLFW_KEY_LEFT))) {
             bool right = keyboard.justPressed(GLFW_KEY_RIGHT);
-            int start = (selectedIndex < presetsCount) ? 0 : presetsCount;
-            int end = (selectedIndex < presetsCount) ? presetsCount : itemCount;
-            int size = end - start;
-            if ((right && selectedIndex < end - 1) || (!right && selectedIndex > start)) {
-                keyboardNavActive = true;
-                selectedIndex = start + (selectedIndex - start + (right ? 1 : -1 + size)) % size;
-            }
+            int rowStart = (selectedIndex < presetsCount) ? 0 : presetsCount;
+            int rowEnd   = (selectedIndex < presetsCount) ? presetsCount : itemCount;
+            int rowSize  = rowEnd - rowStart;
+
+            keyboardNavActive = true;
+            int localIdx = selectedIndex - rowStart;
+            if (right) localIdx = (localIdx + 1) % rowSize;
+            else localIdx = (localIdx - 1 + rowSize) % rowSize;
+            selectedIndex = rowStart + localIdx;
         }
 
         if (keyboard.justPressed(GLFW_KEY_ENTER) || keyboard.justPressed(GLFW_KEY_SPACE))
@@ -643,16 +641,24 @@ class Menustate : public our::State
                 else if (selectedIndex == 1) getApp()->close();
                 break;
             case MenuScreen::TRACK_SELECT:
-                if (selectedIndex == 0) { selectedTrackIndex = 0; if (!trackPresetIds.empty()) getApp()->setSelectedTrackPreset(trackPresetIds[0]); }
-                else if (selectedIndex == 1) { selectedTrackIndex = 1; if (trackPresetIds.size() > 1) getApp()->setSelectedTrackPreset(trackPresetIds[1]); }
-                else if (selectedIndex == 2) { currentScreen = MenuScreen::MAIN_MENU; selectedIndex = 0; }
-                else if (selectedIndex == 3) { currentScreen = MenuScreen::CAR_SELECT; selectedIndex = 0; }
+                if (selectedIndex < (int)trackPresetIds.size()) {
+                    selectedTrackIndex = selectedIndex;
+                    getApp()->setSelectedTrackPreset(trackPresetIds[selectedIndex]);
+                } else if (selectedIndex == 3) { // BACK
+                    currentScreen = MenuScreen::MAIN_MENU; selectedIndex = 0; 
+                } else if (selectedIndex == 4) { // NEXT
+                    currentScreen = MenuScreen::CAR_SELECT; selectedIndex = 0; 
+                }
                 break;
             case MenuScreen::CAR_SELECT:
-                if (selectedIndex == 0) { selectedCarIndex = 0; if (!carPresetIds.empty()) getApp()->setSelectedCarPreset(carPresetIds[0]); }
-                else if (selectedIndex == 1) { selectedCarIndex = 1; if (carPresetIds.size() > 1) getApp()->setSelectedCarPreset(carPresetIds[1]); }
-                else if (selectedIndex == 2) { currentScreen = MenuScreen::TRACK_SELECT; selectedIndex = 0; }
-                else if (selectedIndex == 3) getApp()->changeState("play");
+                if (selectedIndex < (int)carPresetIds.size()) {
+                    selectedCarIndex = selectedIndex;
+                    getApp()->setSelectedCarPreset(carPresetIds[selectedIndex]);
+                } else if (selectedIndex == 2) { // BACK
+                    currentScreen = MenuScreen::TRACK_SELECT; selectedIndex = 0; 
+                } else if (selectedIndex == 3) { // START
+                    getApp()->changeState("play");
+                }
                 break;
             }
         }

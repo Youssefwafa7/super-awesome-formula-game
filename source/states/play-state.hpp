@@ -294,11 +294,35 @@ class Playstate: public our::State {
         if(carPreset != nullptr && carPreset->contains("entity") && (*carPreset)["entity"].is_object()){
             nlohmann::json player = (*carPreset)["entity"];
 
+            auto readVec3 = [](const nlohmann::json& value, const glm::vec3& fallback){
+                if(!value.is_array() || value.size() < 3) return fallback;
+                return glm::vec3(
+                    value[0].get<float>(),
+                    value[1].get<float>(),
+                    value[2].get<float>()
+                );
+            };
+
             // Override spawn from track preset if provided.
             if(trackPreset != nullptr && trackPreset->contains("spawn") && (*trackPreset)["spawn"].is_object()){
                 const auto& spawn = (*trackPreset)["spawn"];
-                if(spawn.contains("position")) player["position"] = spawn["position"];
-                if(spawn.contains("rotation")) player["rotation"] = spawn["rotation"];
+                if(spawn.contains("position") && player.contains("position") && player["position"].is_array() && spawn["position"].is_array()){
+                    const glm::vec3 playerPosition = readVec3(player["position"], glm::vec3(0.0f));
+                    const glm::vec3 spawnPosition = readVec3(spawn["position"], glm::vec3(0.0f));
+                    const glm::vec3 combinedPosition = playerPosition + spawnPosition;
+                    player["position"] = nlohmann::json::array({combinedPosition.x, combinedPosition.y, combinedPosition.z});
+                } else if(spawn.contains("position")) {
+                    player["position"] = spawn["position"];
+                }
+
+                if(spawn.contains("rotation") && player.contains("rotation") && player["rotation"].is_array() && spawn["rotation"].is_array()){
+                    const glm::vec3 playerRotation = readVec3(player["rotation"], glm::vec3(0.0f));
+                    const glm::vec3 spawnRotation = readVec3(spawn["rotation"], glm::vec3(0.0f));
+                    const glm::vec3 combinedRotation = playerRotation + spawnRotation;
+                    player["rotation"] = nlohmann::json::array({combinedRotation.x, combinedRotation.y, combinedRotation.z});
+                } else if(spawn.contains("rotation")) {
+                    player["rotation"] = spawn["rotation"];
+                }
             }
 
             out.push_back(std::move(player));
