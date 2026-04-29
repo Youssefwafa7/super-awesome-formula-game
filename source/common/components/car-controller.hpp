@@ -3,6 +3,7 @@
 #include "../ecs/component.hpp"
 
 #include <glm/glm.hpp>
+#include <glm/gtc/quaternion.hpp>
 
 #include <string>
 #include <vector>
@@ -42,10 +43,18 @@ namespace our {
 
         float groundClearance = 0.08f; // how high the car stays above sampled track height
 
+        // Surface alignment tuning (pitch/roll to match track slope)
+        float slopeSmoothingSpeed = 8.0f;  // slerp rate toward target surface orientation
+        float maxPitchAngle = 0.25f;       // ~14 degrees max pitch (subtle)
+        float maxRollAngle = 0.4f;         // ~23 degrees max roll
+
         // Runtime state
         float speed = 0.0f;
         float steeringAngle = 0.0f; // radians (visual-only)
         bool noClip = false;
+
+        // Smoothed surface orientation (runtime, not serialized)
+        glm::quat _surfaceOrientation = glm::quat(1.0f, 0.0f, 0.0f, 0.0f);
 
         // Cached part indices for front wheel steering (MultiMeshRenderer)
         bool _cachedFrontWheelParts = false;

@@ -251,7 +251,8 @@
                   "tire",
                   "tyre",
                   "collider"
-                ]
+                ],
+                "curbTextureHints": ["curb", "kerb"]
               },
               {
                 "type": "Multi Mesh Renderer",
@@ -319,7 +320,8 @@
                   "tire",
                   "tyre",
                   "collider"
-                ]
+                ],
+                "curbTextureHints": ["curb", "kerb"]
               },
               {
                 "type": "Multi Mesh Renderer",
@@ -387,7 +389,8 @@
                   "tire",
                   "tyre",
                   "collider"
-                ]
+                ],
+                "curbTextureHints": ["curb", "kerb"]
               },
               {
                 "type": "Multi Mesh Renderer",

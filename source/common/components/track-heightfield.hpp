@@ -20,6 +20,14 @@ namespace our {
             glm::vec2 b = glm::vec2(0.0f);
         };
 
+        // A single drivable triangle stored in world space with its precomputed normal.
+        // Used for precise surface-normal queries (car orientation alignment).
+        struct DrivableTri {
+            glm::vec3 v0, v1, v2;
+            glm::vec3 normal;        // normalized face normal
+            uint8_t   surface;       // SurfaceType (Road or Grass)
+        };
+
         enum class SurfaceType : uint8_t {
             Road = 0,
             Grass = 1,
@@ -46,7 +54,10 @@ namespace our {
         // Texture/material name hints used for classifying surfaces.
         std::vector<std::string> roadTextureHints = {"road", "asphalt", "track", "line", "concrete", "lane"};
         std::vector<std::string> grassTextureHints = {"grass", "terrain", "ground", "turf", "dirt", "soil"};
-        std::vector<std::string> wallTextureHints = {"wall", "barrier", "fence", "guard", "guardrail", "rail", "curb", "kerb", "tire", "tyre"};
+        std::vector<std::string> wallTextureHints = {"wall", "barrier", "fence", "guard", "guardrail", "rail", "tire", "tyre"};
+        // Curb hints: treated as walls for collision, but also stored as drivable triangles
+        // so the car can orient to curb geometry when driven onto them.
+        std::vector<std::string> curbTextureHints = {"curb", "kerb"};
 
         // Computed grid bounds
         float minX = 0.0f, minZ = 0.0f;
@@ -58,6 +69,14 @@ namespace our {
         std::vector<uint8_t> surfaceType;   // SurfaceType enum values for drivable cells
         std::vector<uint8_t> wall;          // 1 if this cell is blocked by wall geometry/material
         std::vector<WallSegment> wallSegments;
+
+        // Per-triangle drivable surface mesh for precise normal queries.
+        std::vector<DrivableTri> drivableTris;
+        // 2D spatial grid: triGrid[cellIdx] holds indices into drivableTris
+        std::vector<std::vector<uint32_t>> triGrid;
+        int triGridW = 0, triGridH = 0;
+        float triGridCellSize = 1.0f;
+        float triGridMinX = 0.0f, triGridMinZ = 0.0f;
 
         void deserialize(const nlohmann::json& data) override;
 
@@ -77,6 +96,10 @@ namespace our {
 
         // If position lies in wall/non-drivable area, project it to nearest non-wall drivable cell.
         bool projectToNearestDrivable(glm::vec2& position, int maxSearchCells = 32) const;
+
+        // Finds the drivable triangle directly under (x, ?, z) and returns
+        // its interpolated height and face normal. Returns false if no drivable surface found.
+        bool sampleDrivableSurface(float x, float z, float& outY, glm::vec3& outNormal) const;
 
     private:
         void buildFromModel(const std::string& modelPath, const glm::mat4& localToWorld);

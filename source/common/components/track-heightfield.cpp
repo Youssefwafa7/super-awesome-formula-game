@@ -21,7 +21,8 @@ namespace our {
             Unknown,
             Road,
             Grass,
-            Wall
+            Wall,
+            Curb
         };
 
         static std::string toLowerCopy(const std::string& s){
@@ -45,10 +46,13 @@ namespace our {
             const std::string& textureName,
             const std::vector<std::string>& roadHints,
             const std::vector<std::string>& grassHints,
-            const std::vector<std::string>& wallHints
+            const std::vector<std::string>& wallHints,
+            const std::vector<std::string>& curbHints
         ) {
             const std::string infoLower = toLowerCopy(shapeName + std::string(" ") + materialName + std::string(" ") + textureName);
 
+            // Curb must be checked before wall, since curb names might also match wall hints.
+            if(containsAnyHint(infoLower, curbHints)) return FaceSurface::Curb;
             if(containsAnyHint(infoLower, wallHints)) return FaceSurface::Wall;
             if(containsAnyHint(infoLower, grassHints)) return FaceSurface::Grass;
             if(containsAnyHint(infoLower, roadHints)) return FaceSurface::Road;
@@ -458,7 +462,8 @@ namespace our {
                 textureName,
                 roadTextureHints,
                 grassTextureHints,
-                wallTextureHints
+                wallTextureHints,
+                curbTextureHints
             );
 
             for(unsigned int f = 0; f < mesh->mNumFaces; f++){
@@ -483,17 +488,37 @@ namespace our {
                         continue;
                     }
 
+                    // Curb: treated as drivable (like grass), not as a wall.
+                    FaceSurface effectiveHint = hintSurface;
+                    if(effectiveHint == FaceSurface::Curb){
+                        effectiveHint = FaceSurface::Grass;
+                    }
+
                     glm::vec3 n = glm::cross(b - a, c - a);
                     const float nlen = glm::length(n);
                     if(nlen < 1e-8f) continue;
                     n /= nlen;
 
-                    if(hardWallNormalY > 0.0f && hintSurface == FaceSurface::Unknown && std::abs(n.y) <= hardWallNormalY){
+                    if(hardWallNormalY > 0.0f && effectiveHint == FaceSurface::Unknown && std::abs(n.y) <= hardWallNormalY){
                         markWallTriangle(a, b, c);
                         continue;
                     }
 
                     if(n.y < minNormalY) continue;
+
+                    // Store this drivable triangle for precise surface-normal queries.
+                    {
+                        DrivableTri tri;
+                        tri.v0 = a; tri.v1 = b; tri.v2 = c;
+                        tri.normal = n;
+                        FaceSurface triSurf = effectiveHint;
+                        if(triSurf == FaceSurface::Unknown) triSurf = classifyFromColor(materialDiffuse);
+                        if(triSurf == FaceSurface::Unknown) triSurf = FaceSurface::Road;
+                        tri.surface = (triSurf == FaceSurface::Grass)
+                            ? (uint8_t)SurfaceType::Grass
+                            : (uint8_t)SurfaceType::Road;
+                        drivableTris.push_back(tri);
+                    }
 
                     const float triMinX = std::min({a.x, b.x, c.x});
                     const float triMaxX = std::max({a.x, b.x, c.x});
@@ -523,7 +548,7 @@ namespace our {
                             float w0, w1, w2;
                             if(!barycentric2D(a2, b2, c2, p2, w0, w1, w2)) continue;
 
-                            FaceSurface cellSurface = hintSurface;
+                            FaceSurface cellSurface = effectiveHint;
                             if(cellSurface == FaceSurface::Unknown){
                                 cellSurface = classifyFromColor(materialDiffuse);
                             }
@@ -602,12 +627,46 @@ namespace our {
             if(wall[i]) wallCount++;
         }
 
+        // Build the per-triangle spatial grid for sampleDrivableSurface().
+        if(!drivableTris.empty()){
+            triGridCellSize = std::max(cellSize * 4.0f, 1.0f);
+            triGridMinX = mn.x;
+            triGridMinZ = mn.z;
+            const float spanTX = mx.x - mn.x;
+            const float spanTZ = mx.z - mn.z;
+            triGridW = std::max(1, (int)std::ceil(spanTX / triGridCellSize) + 1);
+            triGridH = std::max(1, (int)std::ceil(spanTZ / triGridCellSize) + 1);
+            triGrid.resize((size_t)triGridW * (size_t)triGridH);
+
+            for(uint32_t ti = 0; ti < (uint32_t)drivableTris.size(); ti++){
+                const auto& tri = drivableTris[ti];
+                const float tMinX = std::min({tri.v0.x, tri.v1.x, tri.v2.x});
+                const float tMaxX = std::max({tri.v0.x, tri.v1.x, tri.v2.x});
+                const float tMinZ = std::min({tri.v0.z, tri.v1.z, tri.v2.z});
+                const float tMaxZ = std::max({tri.v0.z, tri.v1.z, tri.v2.z});
+
+                int gx0 = std::clamp((int)std::floor((tMinX - triGridMinX) / triGridCellSize), 0, triGridW - 1);
+                int gx1 = std::clamp((int)std::floor((tMaxX - triGridMinX) / triGridCellSize), 0, triGridW - 1);
+                int gz0 = std::clamp((int)std::floor((tMinZ - triGridMinZ) / triGridCellSize), 0, triGridH - 1);
+                int gz1 = std::clamp((int)std::floor((tMaxZ - triGridMinZ) / triGridCellSize), 0, triGridH - 1);
+
+                for(int gz = gz0; gz <= gz1; gz++){
+                    for(int gx = gx0; gx <= gx1; gx++){
+                        triGrid[(size_t)(gz * triGridW + gx)].push_back(ti);
+                    }
+                }
+            }
+        }
+
         std::cout << "[TrackHeightfieldComponent] Built heightfield: "
                   << width << "x" << height << " cellSize=" << cellSize
                   << " minNormalY=" << minNormalY
                   << " drivableCells=" << drivableCount
                   << " wallCells=" << wallCount
-                  << " wallSegments=" << wallSegments.size() << std::endl;
+                  << " wallSegments=" << wallSegments.size()
+                  << " drivableTris=" << drivableTris.size()
+                  << " triGrid=" << triGridW << "x" << triGridH
+                  << std::endl;
     }
 
     void TrackHeightfieldComponent::deserialize(const nlohmann::json& data){
@@ -630,6 +689,9 @@ namespace our {
         }
         if(data.contains("wallTextureHints") && data["wallTextureHints"].is_array()){
             wallTextureHints = data["wallTextureHints"].get<std::vector<std::string>>();
+        }
+        if(data.contains("curbTextureHints") && data["curbTextureHints"].is_array()){
+            curbTextureHints = data["curbTextureHints"].get<std::vector<std::string>>();
         }
 
         std::string modelPath = data.value("model", "");
@@ -708,6 +770,45 @@ namespace our {
         if(!sampleSurface(x, z, outY, surface)) return false;
         if(surface == SurfaceType::Wall) return false;
         return std::isfinite(outY);
+    }
+
+    bool TrackHeightfieldComponent::sampleDrivableSurface(float x, float z, float& outY, glm::vec3& outNormal) const {
+        if(triGridW <= 0 || triGridH <= 0 || drivableTris.empty()) return false;
+
+        const int gx = (int)std::floor((x - triGridMinX) / triGridCellSize);
+        const int gz = (int)std::floor((z - triGridMinZ) / triGridCellSize);
+        if(gx < 0 || gx >= triGridW || gz < 0 || gz >= triGridH) return false;
+
+        const auto& cell = triGrid[(size_t)(gz * triGridW + gx)];
+        if(cell.empty()) return false;
+
+        const glm::vec2 p2(x, z);
+        float bestY = -std::numeric_limits<float>::infinity();
+        glm::vec3 bestNormal(0.0f, 1.0f, 0.0f);
+        bool found = false;
+
+        for(uint32_t ti : cell){
+            const auto& tri = drivableTris[ti];
+            const glm::vec2 a2(tri.v0.x, tri.v0.z);
+            const glm::vec2 b2(tri.v1.x, tri.v1.z);
+            const glm::vec2 c2(tri.v2.x, tri.v2.z);
+
+            float w0, w1, w2;
+            if(!barycentric2D(a2, b2, c2, p2, w0, w1, w2)) continue;
+
+            const float y = w0 * tri.v0.y + w1 * tri.v1.y + w2 * tri.v2.y;
+            if(y > bestY){
+                bestY = y;
+                bestNormal = tri.normal;
+                found = true;
+            }
+        }
+
+        if(!found) return false;
+
+        outY = bestY;
+        outNormal = bestNormal;
+        return true;
     }
 
 }
