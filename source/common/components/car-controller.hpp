@@ -52,6 +52,7 @@ namespace our {
         float speed = 0.0f;
         float steeringAngle = 0.0f; // radians (visual-only)
         bool noClip = false;
+        float reverseCooldownTimer = 0.0f; // cooldown before reversing
 
         // Smoothed surface orientation (runtime, not serialized)
         glm::quat _surfaceOrientation = glm::quat(1.0f, 0.0f, 0.0f, 0.0f);

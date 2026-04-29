@@ -471,21 +471,69 @@ namespace our {
                 if(isRaceStarted){
                     throttle = (keyboard.isPressed(GLFW_KEY_W) ? 1.0f : 0.0f) - (keyboard.isPressed(GLFW_KEY_S) ? 1.0f : 0.0f);
                     steer = (keyboard.isPressed(GLFW_KEY_A) ? 1.0f : 0.0f) - (keyboard.isPressed(GLFW_KEY_D) ? 1.0f : 0.0f);
+
+                    GLFWgamepadstate state;
+                    if (glfwGetGamepadState(GLFW_JOYSTICK_1, &state)) {
+                        float rt = (state.axes[GLFW_GAMEPAD_AXIS_RIGHT_TRIGGER] + 1.0f) / 2.0f;
+                        float lt = (state.axes[GLFW_GAMEPAD_AXIS_LEFT_TRIGGER] + 1.0f) / 2.0f;
+                        float leftX = state.axes[GLFW_GAMEPAD_AXIS_LEFT_X];
+
+                        // Deadzone for analog stick
+                        if (std::abs(leftX) < 0.1f) leftX = 0.0f;
+
+                        throttle += (rt - lt);
+                        steer += -leftX; // Left is positive, Right is negative in this engine
+
+                        throttle = std::clamp(throttle, -1.0f, 1.0f);
+                        steer = std::clamp(steer, -1.0f, 1.0f);
+                    }
                 }
                 
                 const bool onGrass = (currentSurface == TrackHeightfieldComponent::SurfaceType::Grass);
                 const float accelFactor = onGrass ? car->grassAccelFactor : 1.0f;
 
+                // Tick reverse cooldown timer
+                if(car->reverseCooldownTimer > 0.0f){
+                    car->reverseCooldownTimer -= deltaTime;
+                }
+
                 // Update speed.
                 if(throttle > 0.0f){
-                    car->speed += car->acceleration * accelFactor * deltaTime;
+                    if(car->speed < 0.0f){
+                        // Braking while moving backward
+                        car->speed += (car->brakeAcceleration * 0.6f) * accelFactor * deltaTime;
+                        if(car->speed > 0.0f) car->speed = 0.0f;
+                    } else {
+                        // Accelerating forward
+                        car->speed += car->acceleration * accelFactor * deltaTime;
+                    }
                 } else if(throttle < 0.0f){
-                    car->speed -= car->brakeAcceleration * accelFactor * deltaTime;
+                    if(car->speed > 0.0f){
+                        // Braking while moving forward
+                        car->speed -= (car->brakeAcceleration * 0.5f) * accelFactor * deltaTime;
+                        if(car->speed <= 0.0f) {
+                            car->speed = 0.0f;
+                            car->reverseCooldownTimer = 0.5f; // 0.5 seconds cooldown
+                        }
+                    } else {
+                        // Accelerating backward (Reverse)
+                        if(car->reverseCooldownTimer <= 0.0f){
+                            car->speed -= car->acceleration * accelFactor * deltaTime;
+                        }
+                    }
                 } else {
-                    // Damping towards 0.
+                    // Coasting (No throttle, no brake)
+                    // Apply momentum/inertia: slow stop
                     const float extraGrassDrag = onGrass ? (0.35f * car->grassDamping) : 0.0f;
-                    const float damping = std::max(0.0f, 1.0f - (car->linearDamping + extraGrassDrag) * deltaTime);
-                    car->speed *= damping;
+                    const float rollingResistance = (car->acceleration * 0.27f) + (onGrass ? (2.0f * car->grassDamping) : 0.0f);
+                    
+                    if(car->speed > 0.0f){
+                        car->speed -= rollingResistance * deltaTime;
+                        if(car->speed < 0.0f) car->speed = 0.0f;
+                    } else if(car->speed < 0.0f){
+                        car->speed += rollingResistance * deltaTime;
+                        if(car->speed > 0.0f) car->speed = 0.0f;
+                    }
                 }
 
                 // Clamp to base limits first to avoid runaway speed.
@@ -505,13 +553,15 @@ namespace our {
                 }
 
                 // Turning. (Less turning when nearly stopped.)
-                const float speedFactor = std::clamp(std::abs(car->speed) / std::max(1e-3f, car->maxSpeed), 0.0f, 1.0f);
+                const float speedRatio = std::clamp(std::abs(car->speed) / std::max(1e-3f, car->maxSpeed), 0.0f, 1.0f);
+                const float angleFactor = 1.0f - 0.44f * speedRatio; // Steering angle decreases with speed
+                const float turnFactor = speedRatio * angleFactor; // Turning rate proportional to speed
                 const float grassTurnFactor = onGrass ? car->grassTurnFactor : 1.0f;
-                // If the car is basically stationary, don't rotate in place (only steer tires visually).
+                
                 if(std::abs(car->speed) > 0.05f){
                     // Swap steering while reversing.
                     const float reversing = (car->speed < -0.1f) ? -1.0f : 1.0f;
-                    transform.rotation.y += (steer * reversing) * car->turnSpeed * deltaTime * speedFactor * grassTurnFactor;
+                    transform.rotation.y += (steer * reversing) * car->turnSpeed * deltaTime * turnFactor * grassTurnFactor;
                 }
 
                 // Integrate position in XZ using sub-steps for stable collision near walls.
@@ -569,7 +619,9 @@ namespace our {
                 }
 
                 // Visual wheel steering angle (independent of movement).
-                car->steeringAngle = steer * glm::radians(car->wheelSteerMaxAngle);
+                float speedRatioVisual = std::clamp(std::abs(car->speed) / std::max(1e-3f, car->maxSpeed), 0.0f, 1.0f);
+                float angleFactorVisual = 1.0f - 0.7f * speedRatioVisual;
+                car->steeringAngle = steer * glm::radians(car->wheelSteerMaxAngle) * angleFactorVisual;
 
                 // Surface alignment: pitch and roll to match drivable surface normal.
                 applySlopeAlignment(track, car, transform, deltaTime);
