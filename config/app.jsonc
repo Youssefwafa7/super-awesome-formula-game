@@ -41,8 +41,8 @@
         }
       },
       "meshes": {
-        "standard_kart": "assets/models/Cartoon_Formula_1975/Cartoon_Formula_1975.gltf",
-        "boom_karts_kart": "assets/models/1991_f1_car/1991.gltf"
+        "ferrari_1975": "assets/models/Cartoon_Formula_1975/Cartoon_Formula_1975.gltf",
+        "ferrari_1991": "assets/models/1991_f1_car/1991.gltf"
       },
       "samplers": {
         "default": {
@@ -57,19 +57,19 @@
 
     // Default selection (used on launch; the menu lets you change these).
     "selection": {
-      "car": "standard_kart",
-      "track": "spa"
+      "car": "ferrari_1975",
+      "track": "montreal"
     },
 
     // Presets for cars and tracks.
     // Each preset carries the correct scaling/rotation/positioning so you can switch in-game without mis-sized assets.
     "presets": {
       "cars": [
-        // Car preset: Standard Kart
+        // Car preset: Ferrari 1975
         // OBJ size is ~14.6 units long, so we scale it down to ~1.5 world units.
         {
-          "id": "standard_kart",
-          "label": "Standard Kart",
+          "id": "ferrari_1975",
+          "label": "Ferrari 1975",
           "entity": {
             "name": "player",
             "position": [0.0, 0.0, 0.0],
@@ -110,7 +110,7 @@
               },
               {
                 "type": "Multi Mesh Renderer",
-                "mesh": "standard_kart",
+                "mesh": "ferrari_1975",
                 "shader": "lit",
                 "sampler": "default",
                 "pipelineState": {
@@ -132,11 +132,11 @@
           }
         },
 
-        // Car preset: Boom Karts Kart
+        // Car preset: Ferrari 1991
         // This OBJ is extremely tiny in its authoring units, so it needs a large scale.
         {
-          "id": "boom_karts_kart",
-          "label": "Boom Karts Kart",
+          "id": "ferrari_1991",
+          "label": "Ferrari 1991",
           "entity": {
             "name": "player",
             "position": [0.0, 0.0, 0.0],
@@ -177,7 +177,7 @@
               },
               {
                 "type": "Multi Mesh Renderer",
-                "mesh": "boom_karts_kart",
+                "mesh": "ferrari_1991",
                 "recenterToOrigin": false,
                 "shader": "lit",
                 "sampler": "default",
@@ -202,19 +202,19 @@
       ],
 
       "tracks": [
-        // Track preset: South Garda Karting
+        // Track preset: Montreal
         {
-          "id": "south_garda",
-          "label": "South Garda Karting",
+          "id": "montreal",
+          "label": "Montreal",
           "spawn": {
-            "position": [40.35, 18, 3.83],
-            "rotation": [0, -267, 0]
+            "position": [146.21, 1.0, 44.44],
+            "rotation": [0, -270, 0]
           },
           "entity": {
             "name": "track",
             "position": [-18.04, 0.0, -26.12],
             "rotation": [0, 0, 0],
-            "scale": [0.7, 0.7, 0.7],
+            "scale": [1.2, 1.2, 1.2],
             "components": [
               {
                 "type": "Track Heightfield",
@@ -270,20 +270,20 @@
             ]
           }
         },
-        // Track preset: Mini Silverstone
+        // Track preset: Silverstone
         {
-          "id": "mini_silverstone",
-          "label": "Mini Silverstone",
+          "id": "silverstone",
+          "label": "Silverstone",
           "spawn": {
             // Spawn on the start/finish area (world coordinates).
-            "position": [100.10, -0.42, 1.29],
-            "rotation": [0, 70.8, 0]
+            "position": [-358.08, 0.58, -90.83],
+            "rotation": [0, -188, 0]
           },
           "entity": {
             "name": "track",
             "position": [0.0, 0.0, 0.0],
             "rotation": [0, 0, 0],
-            "scale": [0.5, 0.5, 0.5],
+            "scale": [1.0, 1.0, 1.0],
             "components": [
               {
                 "type": "Track Heightfield",
@@ -339,14 +339,14 @@
             ]
           }
         },
-        // Track preset: Cartoon Race Track Spa
+        // Track preset: Spa
         // Copying defaults from South Garda; adjust spawn/position as needed.
         {
           "id": "spa",
-          "label": "Cartoon Race Track Spa",
+          "label": "Spa",
           "spawn": {
-            "position": [1.93, 2.18, -0.51],
-            "rotation": [0, 274, 0]
+            "position": [-25.3, -0.52, -4.61],
+            "rotation": [0, -269, 0]
           },
           "entity": {
             "name": "track",
