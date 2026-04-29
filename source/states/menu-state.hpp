@@ -333,7 +333,6 @@ class Menustate : public our::State
             float navGap = 20.0f;
             float navStartX = (ImGui::GetWindowWidth() - 2 * navW - navGap) * 0.5f;
 
-            // BACK - This is index 3 in a 3-track layout
             ImGui::SetCursorPosX(navStartX);
             bool backActive = (keyboardNavActive && selectedIndex == 3);
             if (backActive) {
@@ -350,7 +349,6 @@ class Menustate : public our::State
 
             ImGui::SameLine(0, navGap);
 
-            // NEXT - This is index 4 in a 3-track layout
             bool nextActive = (keyboardNavActive && selectedIndex == 4);
             if (nextActive) {
                 ImGui::PushStyleColor(ImGuiCol_Button, kRedHover());
@@ -446,7 +444,6 @@ class Menustate : public our::State
             float navGap = 20.0f;
             float navStartX = (ImGui::GetWindowWidth() - 2 * navW - navGap) * 0.5f;
 
-            // BACK - Index 2
             ImGui::SetCursorPosX(navStartX);
             bool backActive = (keyboardNavActive && selectedIndex == 2);
             if (backActive) {
@@ -463,7 +460,6 @@ class Menustate : public our::State
 
             ImGui::SameLine(0, navGap);
 
-            // START - Index 3
             bool startActive = (keyboardNavActive && selectedIndex == 3);
             if (startActive) {
                 ImGui::PushStyleColor(ImGuiCol_Button, kRedHover());
@@ -471,8 +467,9 @@ class Menustate : public our::State
                 ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 2.0f);
             }
 
+            // --- REDIRECT TO LOADING STATE ---
             if (ImGui::Button("START RACE", ImVec2(navW, 45))) {
-                getApp()->changeState("play");
+                getApp()->changeState("loading");
             }
             if (startActive) { ImGui::PopStyleColor(2); ImGui::PopStyleVar(1); }
 
@@ -551,22 +548,13 @@ class Menustate : public our::State
         highlightMaterial->pipelineState.blending.destinationFactor = GL_ONE;
 
         rectangle = new our::Mesh({
-                                      {{0.0f, 0.0f, 0.0f}, {255, 255, 255, 255}, {0.0f, 1.0f}, {0.0f, 0.0f, 1.0f}},
-                                      {{1.0f, 0.0f, 0.0f}, {255, 255, 255, 255}, {1.0f, 1.0f}, {0.0f, 0.0f, 1.0f}},
-                                      {{1.0f, 1.0f, 0.0f}, {255, 255, 255, 255}, {1.0f, 0.0f}, {0.0f, 0.0f, 1.0f}},
-                                      {{0.0f, 1.0f, 0.0f}, {255, 255, 255, 255}, {0.0f, 0.0f}, {0.0f, 0.0f, 1.0f}},
-                                  },
-                                  {0, 1, 2, 2, 3, 0});
+            {{0.0f, 0.0f, 0.0f}, {255, 255, 255, 255}, {0.0f, 1.0f}, {0.0f, 0.0f, 1.0f}},
+            {{1.0f, 0.0f, 0.0f}, {255, 255, 255, 255}, {1.0f, 1.0f}, {0.0f, 0.0f, 1.0f}},
+            {{1.0f, 1.0f, 0.0f}, {255, 255, 255, 255}, {1.0f, 0.0f}, {0.0f, 0.0f, 1.0f}},
+            {{0.0f, 1.0f, 0.0f}, {255, 255, 255, 255}, {0.0f, 0.0f}, {0.0f, 0.0f, 1.0f}},
+        }, {0, 1, 2, 2, 3, 0});
 
         time = 0;
-
-        buttons[0].position = {830.0f, 607.0f};
-        buttons[0].size = {400.0f, 33.0f};
-        buttons[0].action = [this]() { this->getApp()->changeState("play"); };
-
-        buttons[1].position = {830.0f, 644.0f};
-        buttons[1].size = {400.0f, 33.0f};
-        buttons[1].action = [this]() { this->getApp()->close(); };
 
         if (ma_engine_init(NULL, &audioEngine) == MA_SUCCESS) {
             isAudioInitialized = true;
@@ -598,13 +586,12 @@ class Menustate : public our::State
         switch (currentScreen)
         {
         case MenuScreen::MAIN_MENU: itemCount = 2; break;
-        case MenuScreen::TRACK_SELECT: itemCount = 2 + NUM_TRACK_PRESETS; break; // 3 tracks + 2 btns = 5
-        case MenuScreen::CAR_SELECT: itemCount = 2 + NUM_CAR_PRESETS; break;     // 2 cars + 2 btns = 4
+        case MenuScreen::TRACK_SELECT: itemCount = 2 + NUM_TRACK_PRESETS; break;
+        case MenuScreen::CAR_SELECT: itemCount = 2 + NUM_CAR_PRESETS; break;
         }
 
         bool isSpecialScreen = (currentScreen == MenuScreen::TRACK_SELECT || currentScreen == MenuScreen::CAR_SELECT);
 
-        // Vertical Navigation
         if (keyboard.justPressed(GLFW_KEY_DOWN) || keyboard.justPressed(GLFW_KEY_UP)) {
             bool down = keyboard.justPressed(GLFW_KEY_DOWN);
             keyboardNavActive = true;
@@ -612,18 +599,16 @@ class Menustate : public our::State
                 if ((down && selectedIndex < itemCount - 1) || (!down && selectedIndex > 0))
                     selectedIndex += down ? 1 : -1;
             } else if (isSpecialScreen) {
-                if (down && selectedIndex < presetsCount) selectedIndex = presetsCount; // Go to first button in bottom row
-                else if (!down && selectedIndex >= presetsCount) selectedIndex = 0;      // Go back to first preset
+                if (down && selectedIndex < presetsCount) selectedIndex = presetsCount;
+                else if (!down && selectedIndex >= presetsCount) selectedIndex = 0;
             }
         }
 
-        // Horizontal Navigation
         if (isSpecialScreen && (keyboard.justPressed(GLFW_KEY_RIGHT) || keyboard.justPressed(GLFW_KEY_LEFT))) {
             bool right = keyboard.justPressed(GLFW_KEY_RIGHT);
             int rowStart = (selectedIndex < presetsCount) ? 0 : presetsCount;
             int rowEnd   = (selectedIndex < presetsCount) ? presetsCount : itemCount;
             int rowSize  = rowEnd - rowStart;
-
             keyboardNavActive = true;
             int localIdx = selectedIndex - rowStart;
             if (right) localIdx = (localIdx + 1) % rowSize;
@@ -644,20 +629,17 @@ class Menustate : public our::State
                 if (selectedIndex < (int)trackPresetIds.size()) {
                     selectedTrackIndex = selectedIndex;
                     getApp()->setSelectedTrackPreset(trackPresetIds[selectedIndex]);
-                } else if (selectedIndex == 3) { // BACK
-                    currentScreen = MenuScreen::MAIN_MENU; selectedIndex = 0; 
-                } else if (selectedIndex == 4) { // NEXT
-                    currentScreen = MenuScreen::CAR_SELECT; selectedIndex = 0; 
-                }
+                } else if (selectedIndex == 3) { currentScreen = MenuScreen::MAIN_MENU; selectedIndex = 0; }
+                else if (selectedIndex == 4) { currentScreen = MenuScreen::CAR_SELECT; selectedIndex = 0; }
                 break;
             case MenuScreen::CAR_SELECT:
                 if (selectedIndex < (int)carPresetIds.size()) {
                     selectedCarIndex = selectedIndex;
                     getApp()->setSelectedCarPreset(carPresetIds[selectedIndex]);
-                } else if (selectedIndex == 2) { // BACK
-                    currentScreen = MenuScreen::TRACK_SELECT; selectedIndex = 0; 
-                } else if (selectedIndex == 3) { // START
-                    getApp()->changeState("play");
+                } else if (selectedIndex == 2) { currentScreen = MenuScreen::TRACK_SELECT; selectedIndex = 0; }
+                else if (selectedIndex == 3) { 
+                    // --- REDIRECT TO LOADING STATE ---
+                    getApp()->changeState("loading"); 
                 }
                 break;
             }
@@ -690,8 +672,7 @@ class Menustate : public our::State
         delete menuMaterial;
         delete highlightMaterial->shader;
         delete highlightMaterial;
-
-        if (isMusicLoaded) { ma_sound_uninit(&menuMusic); isMusicLoaded = false; }
-        if (isAudioInitialized) { ma_engine_uninit(&audioEngine); isAudioInitialized = false; }
+        if (isMusicLoaded) ma_sound_uninit(&menuMusic);
+        if (isAudioInitialized) ma_engine_uninit(&audioEngine);
     }
 };

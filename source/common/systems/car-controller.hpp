@@ -378,7 +378,7 @@ namespace our {
     public:
         void enter(Application* application){ app = application; }
 
-        void update(World* world, float deltaTime){
+        void update(World* world, float deltaTime, bool isRaceStarted = true){
             if(app == nullptr) return;
 
             auto* track = findTrack(world);
@@ -466,8 +466,12 @@ namespace our {
                     }
                 }
 
-                const float throttle = (keyboard.isPressed(GLFW_KEY_W) ? 1.0f : 0.0f) - (keyboard.isPressed(GLFW_KEY_S) ? 1.0f : 0.0f);
-                const float steer = (keyboard.isPressed(GLFW_KEY_A) ? 1.0f : 0.0f) - (keyboard.isPressed(GLFW_KEY_D) ? 1.0f : 0.0f);
+                float throttle = 0.0f;
+                float steer = 0.0f;
+                if(isRaceStarted){
+                    throttle = (keyboard.isPressed(GLFW_KEY_W) ? 1.0f : 0.0f) - (keyboard.isPressed(GLFW_KEY_S) ? 1.0f : 0.0f);
+                    steer = (keyboard.isPressed(GLFW_KEY_A) ? 1.0f : 0.0f) - (keyboard.isPressed(GLFW_KEY_D) ? 1.0f : 0.0f);
+                }
                 
                 const bool onGrass = (currentSurface == TrackHeightfieldComponent::SurfaceType::Grass);
                 const float accelFactor = onGrass ? car->grassAccelFactor : 1.0f;
