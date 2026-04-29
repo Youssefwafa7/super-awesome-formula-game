@@ -53,11 +53,15 @@ class Playstate: public our::State {
     // ── Audio ──
     ma_engine audioEngine;
     ma_sound playMusic;
+    ma_sound countdownSound;
     bool isAudioInitialized = false;
     bool isMusicLoaded = false;
+    bool isCountdownSoundLoaded = false;
+    float introAudioDuration = 2.5f;
+    bool introAudioDone = false;
 
     // ── Countdown Timer ──
-    float countdownTimer = 5.0f;  // 5 second countdown at start
+    float countdownTimer = 3.0f; 
     bool isRaceStarted = false;
 
     static our::Entity* findEntityByName(our::World& world, const std::string& name){
@@ -273,13 +277,18 @@ class Playstate: public our::State {
 
         if(!sceneConfig.contains("presets")) return out;
         const auto& presets = sceneConfig["presets"];
-        const auto& cars = presets.contains("cars") ? presets["cars"] : nlohmann::json::array();
-        const auto& tracks = presets.contains("tracks") ? presets["tracks"] : nlohmann::json::array();
+        const nlohmann::json* carPreset = nullptr;
+        if(presets.contains("cars") && presets["cars"].is_array()){
+            carPreset = findPresetById(presets["cars"], carId);
+            if(!carPreset) carPreset = firstPreset(presets["cars"]);
+        }
+        
+        const nlohmann::json* trackPreset = nullptr;
+        if(presets.contains("tracks") && presets["tracks"].is_array()){
+            trackPreset = findPresetById(presets["tracks"], trackId);
+            if(!trackPreset) trackPreset = firstPreset(presets["tracks"]);
+        }
 
-        const nlohmann::json* carPreset = findPresetById(cars, carId);
-        if(carPreset == nullptr) carPreset = firstPreset(cars);
-        const nlohmann::json* trackPreset = findPresetById(tracks, trackId);
-        if(trackPreset == nullptr) trackPreset = firstPreset(tracks);
 
         if(trackPreset != nullptr){
             if(trackPreset->contains("entities") && (*trackPreset)["entities"].is_array()){
@@ -363,23 +372,39 @@ class Playstate: public our::State {
             if (ma_sound_init_from_file(&audioEngine, "assets/audio/17. Into the Pipe (Hurry Up!).mp3", 0, NULL, NULL, &playMusic) == MA_SUCCESS) {
                 isMusicLoaded = true;
                 ma_sound_set_looping(&playMusic, MA_FALSE);
-                // Play only 5 seconds of audio at the start
-                ma_sound_set_stop_time_in_milliseconds(&playMusic, 4000);
+                ma_sound_set_stop_time_in_milliseconds(&playMusic, (ma_uint64)(introAudioDuration * 1000.0f));
                 ma_sound_start(&playMusic);
+            }
+            if (ma_sound_init_from_file(&audioEngine, "assets/audio/Mario Kart Race Countdown - Sound Effect.mp3", 0, NULL, NULL, &countdownSound) == MA_SUCCESS) {
+                isCountdownSoundLoaded = true;
+                ma_sound_set_looping(&countdownSound, MA_FALSE);
             }
         }
         
         // Reset countdown timer when entering the play state
-        countdownTimer = 5.0f;
+        countdownTimer = 3.0f;
         isRaceStarted = false;
+        introAudioDone = false;
     }
 
     void onDraw(double deltaTime) override {
         // Update countdown timer
-        if (!isRaceStarted) {
+        bool isAudioPlaying = false;
+        if (isMusicLoaded) {
+            isAudioPlaying = ma_sound_is_playing(&playMusic);
+        }
+
+        if (!introAudioDone && !isAudioPlaying) {
+            introAudioDone = true;
+            if (isCountdownSoundLoaded) {
+                ma_sound_start(&countdownSound);
+            }
+        }
+
+        if (introAudioDone && !isRaceStarted) {
             countdownTimer -= (float)deltaTime;
-            if (countdownTimer <= 0.0f) {
-                countdownTimer = 0.0f;
+            if (countdownTimer <= -1.0f) {
+                countdownTimer = -1.0f;
                 isRaceStarted = true;
             }
         }
@@ -402,9 +427,9 @@ class Playstate: public our::State {
             }
         }
 
-        // Only allow car movement after countdown is finished
-        if(!freeRoaming && isRaceStarted){
-            carControllerSystem.update(&world, (float)deltaTime);
+        // Update car controller system (handles snapping and position alignment even during countdown)
+        if(!freeRoaming){
+            carControllerSystem.update(&world, (float)deltaTime, isRaceStarted);
         }
         
         // Always update chase camera so it follows the car from the start
@@ -510,10 +535,10 @@ class Playstate: public our::State {
         }
 
         // Countdown timer display
-        if (!isRaceStarted) {
+        if (!isRaceStarted && introAudioDone) {
             const ImVec2 display = ImGui::GetIO().DisplaySize;
             
-            ImGui::SetNextWindowPos(ImVec2(display.x * 0.5f, display.y * 0.4f), ImGuiCond_Always);
+            ImGui::SetNextWindowPos(ImVec2(display.x * 0.5f, display.y * 0.4f), ImGuiCond_Always, ImVec2(0.5f, 0.5f));
             ImGui::SetNextWindowBgAlpha(0.0f);
             
             ImGuiWindowFlags countFlags = 0;
@@ -524,9 +549,13 @@ class Playstate: public our::State {
             countFlags |= ImGuiWindowFlags_NoNav;
 
             if (ImGui::Begin("Countdown", nullptr, countFlags)) {
-                int seconds = (int)std::ceil(countdownTimer);
                 ImGui::SetWindowFontScale(4.0f);
-                ImGui::TextColored(ImVec4(1.0f, 0.2f, 0.2f, 1.0f), "%d", seconds);
+                if (countdownTimer <= 0.0f) {
+                    ImGui::TextColored(ImVec4(0.2f, 1.0f, 0.2f, 1.0f), "GO!");
+                } else {
+                    int seconds = (int)std::ceil(countdownTimer);
+                    ImGui::TextColored(ImVec4(1.0f, 0.2f, 0.2f, 1.0f), "%d", seconds);
+                }
             }
             ImGui::End();
         }
@@ -577,6 +606,10 @@ class Playstate: public our::State {
         if (isMusicLoaded) {
             ma_sound_uninit(&playMusic);
             isMusicLoaded = false;
+        }
+        if (isCountdownSoundLoaded) {
+            ma_sound_uninit(&countdownSound);
+            isCountdownSoundLoaded = false;
         }
         if (isAudioInitialized) {
             ma_engine_uninit(&audioEngine);
