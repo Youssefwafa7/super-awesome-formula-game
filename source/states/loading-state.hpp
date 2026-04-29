@@ -17,9 +17,23 @@ class Loadingstate : public our::State {
     std::vector<std::pair<std::string, std::string>> assetQueue; // {category, key}
     size_t currentAssetIndex = 0;
     bool assetsParsed = false;
+    float totalWeight = 0.0f;
+    float loadedWeight = 0.0f;
+
+    float getAssetWeight(const std::string& category) {
+        if (category == "samplers") return 1.0f;
+        if (category == "shaders") return 5.0f;
+        if (category == "materials") return 2.0f;
+        if (category == "textures") return 15.0f;
+        if (category == "meshes") return 40.0f;
+        return 1.0f;
+    }
 
     void parseAssetCategories(const nlohmann::json& assets) {
         if (!assets.is_object()) return;
+        
+        totalWeight = 0.0f;
+        loadedWeight = 0.0f;
         
         // Define load order: shaders first (fast), then textures/meshes (slower)
         const char* order[] = {"samplers", "shaders", "materials", "textures", "meshes"};
@@ -28,12 +42,13 @@ class Loadingstate : public our::State {
             if (assets.contains(category) && assets[category].is_object()) {
                 for (auto it = assets[category].begin(); it != assets[category].end(); ++it) {
                     assetQueue.push_back({category, it.key()});
+                    totalWeight += getAssetWeight(category);
                 }
             }
         }
         
         assetsParsed = true;
-        printf("Loading: Found %zu assets to load\n", assetQueue.size());
+        printf("Loading: Found %zu assets to load (Total weight: %.1f)\n", assetQueue.size(), totalWeight);
     }
 
     void loadNextAssetChunk(const nlohmann::json& assets) {
@@ -49,6 +64,7 @@ class Loadingstate : public our::State {
         
         for (size_t i = currentAssetIndex; i < end; ++i) {
             const auto& [category, key] = assetQueue[i];
+            loadedWeight += getAssetWeight(category);
             
             if (category == "shaders" && assets.contains("shaders")) {
                 auto& shaderData = assets["shaders"];
@@ -79,7 +95,11 @@ class Loadingstate : public our::State {
         }
         
         currentAssetIndex = end;
-        progress = static_cast<float>(currentAssetIndex) / static_cast<float>(assetQueue.size());
+        if (totalWeight > 0.0f) {
+            progress = loadedWeight / totalWeight;
+        } else {
+            progress = 1.0f;
+        }
         
         // Log progress every few assets
         if (currentAssetIndex % 10 == 0 || currentAssetIndex == assetQueue.size()) {
@@ -171,10 +191,21 @@ class Loadingstate : public our::State {
         ImGui::ProgressBar(progress, ImVec2(barWidth, 20.0f), "");
         ImGui::PopStyleColor(2);
 
-        const char* text = "INITIALIZING TRACK ASSETS...";
-        float textW = ImGui::CalcTextSize(text).x;
+        std::string currentCategory = "DONE";
+        if (currentAssetIndex < assetQueue.size()) {
+            currentCategory = assetQueue[currentAssetIndex].first;
+        }
+        
+        std::string loadingText = "INITIALIZING TRACK ASSETS...";
+        if (currentCategory == "samplers") loadingText = "LOADING SAMPLERS...";
+        else if (currentCategory == "shaders") loadingText = "COMPILING SHADERS...";
+        else if (currentCategory == "materials") loadingText = "BUILDING MATERIALS...";
+        else if (currentCategory == "textures") loadingText = "DECODING TEXTURES...";
+        else if (currentCategory == "meshes") loadingText = "PARSING 3D MODELS...";
+
+        float textW = ImGui::CalcTextSize(loadingText.c_str()).x;
         ImGui::SetCursorPos(ImVec2((display.x - textW) * 0.5f, display.y * 0.5f - 30.0f));
-        ImGui::Text("%s", text);
+        ImGui::Text("%s", loadingText.c_str());
 
         ImGui::End();
     }
