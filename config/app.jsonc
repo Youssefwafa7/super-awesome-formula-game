@@ -364,7 +364,7 @@
                 "grassSearchCells": 2,
                 "buildWallSegments": true,
                 "wallCollisionDilateCells": 0,
-                "wallCollisionMargin": 0.0,
+                "wallCollisionMargin": 1.0,
                 "roadTextureHints": [
                   "road",
                   "asphalt",
@@ -454,7 +454,8 @@
         "position": [0, 0, 10],
         "components": [
           {
-            "type": "Camera"
+            "type": "Camera",
+            "far": 1000.0
           },
           {
             "type": "Chase Camera",

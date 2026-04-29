@@ -16,10 +16,10 @@
 #include <components/track-heightfield.hpp>
 #include "miniaudio.h"
 
-#include <algorithm>
-#include <cmath>
-#include <cstdlib>
 #include <string>
+#include <fstream>
+#include <filesystem>
+#include <sstream>
 
 // This state shows how to use the ECS framework and deserialization.
 class Playstate: public our::State {
@@ -63,6 +63,243 @@ class Playstate: public our::State {
     // ── Countdown Timer ──
     float countdownTimer = 3.0f; 
     bool isRaceStarted = false;
+
+    // ── Checkpoint System ──
+    struct Checkpoint {
+        glm::vec3 pos;
+        float radius;
+        bool hit = false;
+    };
+
+    struct AiRacer {
+        std::string name;
+        float lapTime;
+        float totalTime;
+    };
+
+    std::vector<Checkpoint> checkpoints;
+    int nextCheckpointIndex = 0;
+    int currentLap = 1;
+    int totalLaps = 3;
+    float currentLapTime = 0.0f;
+    float bestLapTime = 0.0f;
+    float totalRaceTime = 0.0f;
+    float totalPenaltyTime = 0.0f;
+    int playerPosition = 1;
+    std::vector<AiRacer> aiRacers;
+    bool raceFinished = false;
+    bool crossedStartLine = false;
+    int lastHitIdx = -1;
+
+    std::string currentTrackId;
+    float checkpointRadius = 25.0f;
+    std::string lastCheckpointStatus;
+
+    void loadCheckpoints() {
+        checkpoints.clear();
+        lastCheckpointStatus = "";
+        std::string filename = "assets/tracks/" + currentTrackId + "_checkpoints.csv";
+        
+        try {
+            if (!std::filesystem::exists(filename)) {
+                lastCheckpointStatus = "No checkpoints file found.";
+                return;
+            }
+
+            std::ifstream file(filename);
+            if (!file.is_open()) return;
+
+            std::string line;
+            if (!std::getline(file, line)) return; // Skip header
+
+            while (std::getline(file, line)) {
+                if (line.empty()) continue;
+                std::stringstream ss(line);
+                std::string x_str, y_str, z_str, r_str;
+                if (std::getline(ss, x_str, ',') &&
+                    std::getline(ss, y_str, ',') &&
+                    std::getline(ss, z_str, ',') &&
+                    std::getline(ss, r_str, ',')) {
+                    try {
+                        Checkpoint cp;
+                        cp.pos = {std::stof(x_str), std::stof(y_str), std::stof(z_str)};
+                        cp.radius = std::stof(r_str);
+                        cp.hit = false;
+                        checkpoints.push_back(cp);
+                    } catch (...) {
+                        // Skip malformed lines
+                    }
+                }
+            }
+            file.close();
+            nextCheckpointIndex = 0;
+            if (checkpoints.empty()) {
+                lastCheckpointStatus = "Checkpoints file is empty or malformed.";
+            }
+        } catch (...) {
+            lastCheckpointStatus = "Unknown error loading checkpoints.";
+        }
+    }
+
+    void initAiRacers() {
+        aiRacers.clear();
+        float baseTime = 60.0f;
+        if (currentTrackId == "montreal") baseTime = 80.0f;
+        else if (currentTrackId == "silverstone") baseTime = 100.0f;
+        else if (currentTrackId == "spa") baseTime = 130.0f;
+
+        for (int i = 0; i < 5; i++) {
+            AiRacer ai;
+            ai.name = "AI Racer " + std::to_string(i + 1);
+            ai.lapTime = baseTime + (float)(std::rand() % 1000 - 500) / 100.0f;
+            ai.totalTime = 0.0f;
+            aiRacers.push_back(ai);
+        }
+    }
+
+    void updateRaceLogic(float deltaTime) {
+        if (!isRaceStarted || raceFinished || checkpoints.size() < 2) return;
+
+        try {
+            auto* player = findEntityByName(world, "player");
+            auto* track = findTrack(world);
+            if (!player || !track) return;
+
+            glm::vec3 playerPos = player->localTransform.position;
+
+            // Wait for player to cross the start line (checkpoint 0) before starting logic
+            if (!crossedStartLine) {
+                if (!checkpoints.empty()) {
+                    float dist = glm::distance(playerPos, checkpoints[0].pos);
+                    if (dist < checkpoints[0].radius) {
+                        crossedStartLine = true;
+                        lastHitIdx = 0;
+                        totalRaceTime = 0.0f;
+                        currentLapTime = 0.0f;
+                        nextCheckpointIndex = 1 % checkpoints.size();
+                    }
+                }
+                return;
+            }
+
+            totalRaceTime += (float)deltaTime;
+            currentLapTime += (float)deltaTime;
+
+            // 1. Off-track penalty (Disabled for now)
+            /*
+            float y;
+            our::TrackHeightfieldComponent::SurfaceType surface;
+            if (track->sampleSurface(playerPos.x, playerPos.z, y, surface)) {
+                if (surface == our::TrackHeightfieldComponent::SurfaceType::Grass) {
+                    totalPenaltyTime += (float)deltaTime * 1.0f; 
+                }
+            }
+            */
+            // 2. Checkpoint tracking
+            if (!checkpoints.empty()) {
+                int foundIdx = -1;
+                // Search forward up to half the track.
+                // This prevents hitting the 'end' checkpoint while standing at the 'start' 
+                // if they are recorded at the same physical location.
+                int searchRange = std::max(1, (int)checkpoints.size() / 2);
+                for (int i = 0; i < searchRange; ++i) {
+                    int idx = (nextCheckpointIndex + i) % checkpoints.size();
+                    float dist = glm::distance(playerPos, checkpoints[idx].pos);
+                    if (dist < checkpoints[idx].radius) {
+                        foundIdx = idx;
+                        break;
+                    }
+                }
+
+                if (foundIdx != -1 && foundIdx != lastHitIdx) {
+                    // Calculate how many were skipped
+                    int numSkipped = 0;
+                    if (foundIdx >= nextCheckpointIndex) {
+                        numSkipped = foundIdx - nextCheckpointIndex;
+                    } else {
+                        // Skipping across the finish line
+                        numSkipped = ((int)checkpoints.size() - nextCheckpointIndex) + foundIdx;
+                    }
+
+                    if (numSkipped > 0) {
+                        totalPenaltyTime += (float)numSkipped * 20.0f; 
+                    }
+
+                    // Check for lap completion
+                    // A lap is completed if we wrap around the finish line.
+                    if (foundIdx < nextCheckpointIndex || (foundIdx == 0 && nextCheckpointIndex == 0)) {
+                        if (bestLapTime == 0.0f || currentLapTime < bestLapTime) bestLapTime = currentLapTime;
+                        if (currentLap >= totalLaps) {
+                            raceFinished = true;
+                        } else {
+                            currentLap++;
+                            currentLapTime = 0.0f;
+                        }
+                    }
+                    lastHitIdx = foundIdx;
+                    nextCheckpointIndex = (foundIdx + 1) % checkpoints.size();
+                }
+            }
+
+            // 3. AI Position Simulation
+            float progress = 0.0f;
+            if (!checkpoints.empty()) progress = (float)nextCheckpointIndex / (float)checkpoints.size();
+            for (auto& ai : aiRacers) {
+                ai.totalTime = ai.lapTime * (float)(currentLap - 1 + progress);
+            }
+
+            float playerEffectiveTime = totalRaceTime + totalPenaltyTime;
+            int rank = 1;
+            for (const auto& ai : aiRacers) {
+                if (ai.totalTime < playerEffectiveTime) rank++;
+            }
+            playerPosition = rank;
+        } catch (...) {
+            // Silently ignore logic errors to prevent black screen (rendering will still happen)
+        }
+    }
+
+    void saveCheckpoint(bool isStart) {
+        if (currentTrackId.empty()) {
+            lastCheckpointStatus = "Error: No track ID";
+            return;
+        }
+
+        namespace fs = std::filesystem;
+        try {
+            fs::create_directories("assets/tracks");
+            std::string filename = "assets/tracks/" + currentTrackId + "_checkpoints.csv";
+            
+            std::ofstream file;
+            if (isStart) {
+                file.open(filename, std::ios::out | std::ios::trunc);
+                if (file.is_open()) {
+                    file << "x,y,z,radius\n";
+                }
+            } else {
+                file.open(filename, std::ios::out | std::ios::app);
+            }
+
+            if (!file.is_open()) {
+                lastCheckpointStatus = "Error: Could not open file " + filename;
+                return;
+            }
+
+            auto* player = findEntityByName(world, "player");
+            if (!player) {
+                lastCheckpointStatus = "Error: Player not found";
+                return;
+            }
+
+            glm::vec3 pos = player->localTransform.position;
+            file << pos.x << "," << pos.y << "," << pos.z << "," << checkpointRadius << "\n";
+            file.close();
+
+            lastCheckpointStatus = (isStart ? "Track start recorded" : "Checkpoint added");
+        } catch (const std::exception& e) {
+            lastCheckpointStatus = "Error: " + std::string(e.what());
+        }
+    }
 
     static our::Entity* findEntityByName(our::World& world, const std::string& name){
         for(auto* e : world.getEntities()){
@@ -352,6 +589,7 @@ class Playstate: public our::State {
             : (config.contains("selection") ? config["selection"].value("car", std::string{}) : std::string{});
         const std::string trackId = !getApp()->getSelectedTrackPreset().empty() ? getApp()->getSelectedTrackPreset()
             : (config.contains("selection") ? config["selection"].value("track", std::string{}) : std::string{});
+        currentTrackId = trackId;
 
         if(config.contains("presets")){
             world.deserialize(buildWorldWithPresets(config, carId, trackId));
@@ -385,6 +623,16 @@ class Playstate: public our::State {
         countdownTimer = 3.0f;
         isRaceStarted = false;
         introAudioDone = false;
+
+        raceFinished = false;
+        currentLap = 1;
+        currentLapTime = 0.0f;
+        totalRaceTime = 0.0f;
+        totalPenaltyTime = 0.0f;
+        crossedStartLine = false;
+        lastHitIdx = -1;
+        loadCheckpoints();
+        initAiRacers();
     }
 
     void onDraw(double deltaTime) override {
@@ -426,11 +674,17 @@ class Playstate: public our::State {
                 }
             }
         }
+        
+        if(keyboard.justPressed(GLFW_KEY_N)){
+            saveCheckpoint(false);
+        }
 
         // Update car controller system (handles snapping and position alignment even during countdown)
         if(!freeRoaming){
             carControllerSystem.update(&world, (float)deltaTime, isRaceStarted);
         }
+
+        updateRaceLogic((float)deltaTime);
         
         // Always update chase camera so it follows the car from the start
         if(!freeRoaming){
@@ -588,6 +842,80 @@ class Playstate: public our::State {
                 ImGui::Text("wall boxes: %d", debugStats.wallBoxesDrawn);
                 ImGui::Text("wall box edges: %d", debugStats.wallBoxEdges);
                 ImGui::Text("wall segments: %d", debugStats.wallSegmentsDrawn);
+            }
+            ImGui::End();
+        }
+
+        // Checkpoint System HUD
+        {
+            const ImVec2 display = ImGui::GetIO().DisplaySize;
+            ImGui::SetNextWindowPos(ImVec2(std::max(10.0f, display.x - 320.0f), 300.0f), ImGuiCond_FirstUseEver);
+            ImGui::SetNextWindowBgAlpha(0.35f);
+            
+            ImGuiWindowFlags cpFlags = 0;
+            cpFlags |= ImGuiWindowFlags_NoDecoration;
+            cpFlags |= ImGuiWindowFlags_AlwaysAutoResize;
+            cpFlags |= ImGuiWindowFlags_NoSavedSettings;
+            cpFlags |= ImGuiWindowFlags_NoFocusOnAppearing;
+            cpFlags |= ImGuiWindowFlags_NoNav;
+
+            if(ImGui::Begin("Checkpoint System", nullptr, cpFlags)){
+                ImGui::TextColored(ImVec4(0.2f, 0.8f, 1.0f, 1.0f), "Checkpoint System (%s)", currentTrackId.c_str());
+                ImGui::SliderFloat("Radius", &checkpointRadius, 5.0f, 100.0f, "%.1f");
+                if(ImGui::Button("Record Track Start", ImVec2(-1, 0))){
+                    saveCheckpoint(true);
+                }
+                if(ImGui::Button("Add Checkpoint (N)", ImVec2(-1, 0))){
+                    saveCheckpoint(false);
+                }
+                if(!lastCheckpointStatus.empty()){
+                    ImGui::Separator();
+                    ImGui::TextWrapped("%s", lastCheckpointStatus.c_str());
+                }
+            }
+            ImGui::End();
+        }
+
+        // Race HUD
+        {
+            const ImVec2 display = ImGui::GetIO().DisplaySize;
+            ImGui::SetNextWindowPos(ImVec2(display.x * 0.5f, 30.0f), ImGuiCond_Always, ImVec2(0.5f, 0.0f));
+            ImGui::SetNextWindowBgAlpha(0.35f);
+            
+            ImGuiWindowFlags raceFlags = 0;
+            raceFlags |= ImGuiWindowFlags_NoDecoration;
+            raceFlags |= ImGuiWindowFlags_AlwaysAutoResize;
+            raceFlags |= ImGuiWindowFlags_NoSavedSettings;
+            raceFlags |= ImGuiWindowFlags_NoFocusOnAppearing;
+            raceFlags |= ImGuiWindowFlags_NoNav;
+
+            if(ImGui::Begin("Race HUD", nullptr, raceFlags)){
+                ImGui::SetWindowFontScale(1.5f);
+                if (!crossedStartLine) {
+                    ImGui::TextColored(ImVec4(1.0f, 1.0f, 0.2f, 1.0f), "CROSS THE START LINE!");
+                } else {
+                    ImGui::Text("Lap: %d / %d", currentLap, totalLaps);
+                    ImGui::SameLine(200);
+                    ImGui::Text("Pos: %d / %d", playerPosition, (int)aiRacers.size() + 1);
+                }
+                
+                ImGui::Separator();
+                
+                ImGui::Text("Time: %.2f", currentLapTime);
+                if(bestLapTime > 0) {
+                    ImGui::SameLine(200);
+                    ImGui::Text("Best: %.2f", bestLapTime);
+                }
+                
+                if(totalPenaltyTime > 0) {
+                    ImGui::TextColored(ImVec4(1.0f, 0.3f, 0.3f, 1.0f), "Penalty: +%.1fs", totalPenaltyTime);
+                }
+
+                if(raceFinished) {
+                    ImGui::Separator();
+                    ImGui::TextColored(ImVec4(0.2f, 1.0f, 0.2f, 1.0f), "RACE FINISHED!");
+                    ImGui::Text("Final Rank: %d", playerPosition);
+                }
             }
             ImGui::End();
         }
