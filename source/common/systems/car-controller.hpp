@@ -152,12 +152,23 @@ namespace our {
             }
 
             // ── 5. Wall-stuck recovery ──
+            // ── 5. Wall-stuck recovery ──
             // Only trigger if the car was previously moving (reached speed > 5) and
-            // is now stuck (speed near zero). This avoids reversing at startup.
+            // is now stuck. Use a timer so they commit to reversing for a full second.
             if(car->speed > 5.0f) car->aiHasReachedSpeed = true;
-            if(car->aiHasReachedSpeed && std::abs(car->speed) < 0.3f && !onGrass){
-                outThrottle = -0.5f; // Reverse to unstick
-                outSteer = -rawSteer; // Steer opposite while reversing
+            
+            if(car->aiRecoveryTimer > 0.0f){
+                car->aiRecoveryTimer -= deltaTime;
+                outThrottle = -1.0f; // Fast reverse
+                outSteer = car->aiRecoverySteer; // Hold steering
+            }
+            else if(car->aiHasReachedSpeed && std::abs(car->speed) < 1.0f && !onGrass){
+                // Stuck! Start a 1.2 second recovery maneuver
+                car->aiRecoveryTimer = 1.2f;
+                // Steer in the opposite direction of where they were trying to go to back away cleanly
+                car->aiRecoverySteer = (rawSteer >= 0.0f) ? -1.0f : 1.0f;
+                outThrottle = -1.0f;
+                outSteer = car->aiRecoverySteer;
             }
 
             // ── 6. Racing-line deviation guard ──

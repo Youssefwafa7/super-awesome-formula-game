@@ -64,6 +64,8 @@ namespace our {
         float aiSmoothedSteer = 0.0f;         // exponentially smoothed steering value
         float aiRandomSeed = 0.0f;            // unique per-car randomness seed (0..1)
         bool aiHasReachedSpeed = false;        // true once car has reached driving speed (prevents startup reverse)
+        float aiRecoveryTimer = 0.0f;          // time remaining in reverse recovery maneuver
+        float aiRecoverySteer = 0.0f;          // locked steering direction during recovery
 
         // Cached part indices for front wheel steering (MultiMeshRenderer)
         bool _cachedFrontWheelParts = false;
