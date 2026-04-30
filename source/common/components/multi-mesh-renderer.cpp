@@ -250,6 +250,10 @@ namespace our {
     }
 
     MultiMeshRendererComponent::~MultiMeshRendererComponent(){
+        // If this component's resources are borrowed from another (e.g. player → AI clone),
+        // don't delete them; the source component owns them.
+        if(borrowedFromSource) return;
+
         // Note: shader/sampler are typically owned by AssetLoader.
         for(auto* m : ownedMaterials) delete m;
         for(auto* mesh : ownedMeshes) delete mesh;

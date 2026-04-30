@@ -57,6 +57,14 @@ namespace our {
         // Smoothed surface orientation (runtime, not serialized)
         glm::quat _surfaceOrientation = glm::quat(1.0f, 0.0f, 0.0f, 0.0f);
 
+        // ── AI driver state ──
+        bool isAI = false;                    // true → driven by AI, not keyboard
+        int aiCheckpointIndex = 0;            // next checkpoint to target
+        float aiLateralOffset = 0.0f;         // slight offset from racing line center (avoids stacking)
+        float aiSmoothedSteer = 0.0f;         // exponentially smoothed steering value
+        float aiRandomSeed = 0.0f;            // unique per-car randomness seed (0..1)
+        bool aiHasReachedSpeed = false;        // true once car has reached driving speed (prevents startup reverse)
+
         // Cached part indices for front wheel steering (MultiMeshRenderer)
         bool _cachedFrontWheelParts = false;
         std::vector<int> _frontWheelPartIndices;

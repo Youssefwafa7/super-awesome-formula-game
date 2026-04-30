@@ -95,6 +95,15 @@ class Playstate: public our::State {
     float checkpointRadius = 25.0f;
     std::string lastCheckpointStatus;
 
+    // Number of AI cars to spawn
+    static constexpr int kNumAICars = 3;
+
+    // ── Auto-recording system ──
+    bool isRecording = false;
+    std::vector<glm::vec3> recordedPositions;
+    glm::vec3 lastRecordedPos = glm::vec3(0.0f);
+    float recordDistanceInterval = 3.0f; // sample every 3 units of travel
+
     void loadCheckpoints() {
         checkpoints.clear();
         lastCheckpointStatus = "";
@@ -148,12 +157,113 @@ class Playstate: public our::State {
         else if (currentTrackId == "silverstone") baseTime = 100.0f;
         else if (currentTrackId == "spa") baseTime = 130.0f;
 
-        for (int i = 0; i < 5; i++) {
+        for (int i = 0; i < kNumAICars; i++) {
             AiRacer ai;
             ai.name = "AI Racer " + std::to_string(i + 1);
             ai.lapTime = baseTime + (float)(std::rand() % 1000 - 500) / 100.0f;
             ai.totalTime = 0.0f;
             aiRacers.push_back(ai);
+        }
+    }
+
+    // Spawn AI car entities by creating them programmatically and sharing
+    // the player's mesh/material data (avoids re-loading the GLTF model).
+    void spawnAICars() {
+        if (checkpoints.empty()) return; // No checkpoints → no AI
+
+        auto* player = findEntityByName(world, "player");
+        if (!player) return;
+
+        auto* playerMulti = player->getComponent<our::MultiMeshRendererComponent>();
+        auto* playerCar = player->getComponent<our::CarControllerComponent>();
+        if (!playerMulti || !playerCar) return;
+
+        const glm::vec3 spawnPos = player->localTransform.position;
+        const float spawnYaw = player->localTransform.rotation.y;
+
+        // Forward and right directions at spawn.
+        const glm::vec3 fwd(std::sin(spawnYaw), 0.0f, std::cos(spawnYaw));
+        const glm::vec3 right(fwd.z, 0.0f, -fwd.x);
+
+        const float rowSpacing = 5.0f;
+        const float colSpacing = 3.0f;
+
+        // Different tint multipliers for AI cars.
+        const glm::vec4 aiTints[] = {
+            {0.2f, 0.5f, 1.0f, 1.0f},  // blue
+            {1.0f, 0.3f, 0.3f, 1.0f},  // red
+            {0.3f, 1.0f, 0.3f, 1.0f},  // green
+        };
+
+        for (int i = 0; i < kNumAICars; i++) {
+            try {
+                our::Entity* aiEnt = world.add();
+                aiEnt->name = "ai_car_" + std::to_string(i);
+                aiEnt->parent = nullptr;
+
+                // Stagger positions behind the player in a 2-wide grid.
+                int row = i / 2 + 1;
+                int col = (i % 2 == 0) ? -1 : 1;
+                glm::vec3 offset = -fwd * (rowSpacing * (float)row) + right * (colSpacing * (float)col * 0.5f);
+
+                aiEnt->localTransform.position = spawnPos + offset;
+                aiEnt->localTransform.rotation = player->localTransform.rotation;
+                aiEnt->localTransform.scale = player->localTransform.scale;
+
+                // ── Car Controller (copy tuning from player) ──
+                auto* aiCarCtrl = aiEnt->addComponent<our::CarControllerComponent>();
+                // Make AI cars slightly slower and give them more turn speed (tighter turning radius)
+                // so they can follow the track easier without sliding out.
+                aiCarCtrl->acceleration = playerCar->acceleration * 0.8f;
+                aiCarCtrl->brakeAcceleration = playerCar->brakeAcceleration * 1.4f; // Stop faster
+                aiCarCtrl->maxSpeed = playerCar->maxSpeed * 0.8f;
+                aiCarCtrl->maxReverseSpeed = playerCar->maxReverseSpeed;
+                aiCarCtrl->turnSpeed = playerCar->turnSpeed * 1.5f;
+                aiCarCtrl->linearDamping = playerCar->linearDamping;
+                aiCarCtrl->grassSpeedFactor = playerCar->grassSpeedFactor;
+                aiCarCtrl->grassDamping = playerCar->grassDamping;
+                aiCarCtrl->grassTurnFactor = playerCar->grassTurnFactor;
+                aiCarCtrl->grassAccelFactor = playerCar->grassAccelFactor;
+                aiCarCtrl->wallBounceDamping = playerCar->wallBounceDamping;
+                aiCarCtrl->collisionSubstepDistance = playerCar->collisionSubstepDistance;
+                aiCarCtrl->collisionRadius = playerCar->collisionRadius;
+                aiCarCtrl->wallPushback = playerCar->wallPushback;
+                aiCarCtrl->wallResolveIterations = playerCar->wallResolveIterations;
+                aiCarCtrl->maxClimbHeight = playerCar->maxClimbHeight;
+                aiCarCtrl->wheelSteerMaxAngle = playerCar->wheelSteerMaxAngle;
+                aiCarCtrl->groundClearance = playerCar->groundClearance;
+                aiCarCtrl->slopeSmoothingSpeed = playerCar->slopeSmoothingSpeed;
+                aiCarCtrl->maxPitchAngle = playerCar->maxPitchAngle;
+                aiCarCtrl->maxRollAngle = playerCar->maxRollAngle;
+
+                // AI-specific state
+                aiCarCtrl->isAI = true;
+                aiCarCtrl->aiCheckpointIndex = 0;
+                aiCarCtrl->aiLateralOffset = (i % 2 == 0 ? 1.0f : -1.0f) * (1.0f + (float)i * 0.5f);
+                aiCarCtrl->aiRandomSeed = (float)(i + 1) / (float)(kNumAICars + 1);
+
+                // ── Multi Mesh Renderer (share mesh/material data from player) ──
+                auto* aiMulti = aiEnt->addComponent<our::MultiMeshRendererComponent>();
+                aiMulti->borrowedFromSource = true; // Don't delete shared resources!
+                aiMulti->sourceObjPath = playerMulti->sourceObjPath;
+                aiMulti->mergeByMaterial = playerMulti->mergeByMaterial;
+
+                // Copy all parts — mesh/material pointers are shared (owned by player).
+                aiMulti->parts.reserve(playerMulti->parts.size());
+                for (const auto& srcPart : playerMulti->parts) {
+                    our::MultiMeshRendererComponent::Part p;
+                    p.mesh = srcPart.mesh;
+                    p.material = srcPart.material;
+                    p.objectName = srcPart.objectName;
+                    p.materialName = srcPart.materialName;
+                    p.localTransform = srcPart.localTransform;
+                    p.aabbSize = srcPart.aabbSize;
+                    aiMulti->parts.push_back(std::move(p));
+                }
+
+            } catch (...) {
+                // Silently skip if any AI car fails to spawn.
+            }
         }
     }
 
@@ -296,6 +406,37 @@ class Playstate: public our::State {
             file.close();
 
             lastCheckpointStatus = (isStart ? "Track start recorded" : "Checkpoint added");
+        } catch (const std::exception& e) {
+            lastCheckpointStatus = "Error: " + std::string(e.what());
+        }
+    }
+
+    // Save the auto-recorded lap to the checkpoints CSV, replacing the old data.
+    void saveRecordedLap() {
+        if (currentTrackId.empty() || recordedPositions.size() < 5) {
+            lastCheckpointStatus = "Not enough data (" + std::to_string(recordedPositions.size()) + " points)";
+            return;
+        }
+
+        namespace fs = std::filesystem;
+        try {
+            fs::create_directories("assets/tracks");
+
+            // Save raw recording to _recorded.csv (does not overwrite AI checkpoints)
+            {
+                std::string rawFile = "assets/tracks/" + currentTrackId + "_recorded.csv";
+                std::ofstream out(rawFile, std::ios::out | std::ios::trunc);
+                if (out.is_open()) {
+                    out << "x,y,z,radius\n";
+                    for (const auto& p : recordedPositions) {
+                        out << p.x << "," << p.y << "," << p.z << ",12\n";
+                    }
+                    out.close();
+                }
+            }
+
+            lastCheckpointStatus = "Saved " + std::to_string(recordedPositions.size()) + " recorded points!";
+
         } catch (const std::exception& e) {
             lastCheckpointStatus = "Error: " + std::string(e.what());
         }
@@ -633,6 +774,9 @@ class Playstate: public our::State {
         lastHitIdx = -1;
         loadCheckpoints();
         initAiRacers();
+
+        // Spawn AI-controlled cars (requires checkpoints to be loaded first).
+        spawnAICars();
     }
 
     void onDraw(double deltaTime) override {
@@ -679,9 +823,49 @@ class Playstate: public our::State {
             saveCheckpoint(false);
         }
 
+        // ── Auto-recording toggle (R key) ──
+        if(keyboard.justPressed(GLFW_KEY_R)){
+            if(!isRecording){
+                // Start recording.
+                isRecording = true;
+                recordedPositions.clear();
+                auto* player = findEntityByName(world, "player");
+                if(player){
+                    lastRecordedPos = player->localTransform.position;
+                    recordedPositions.push_back(lastRecordedPos);
+                }
+                lastCheckpointStatus = "RECORDING started — drive a lap!";
+            } else {
+                // Stop recording and save.
+                isRecording = false;
+                saveRecordedLap();
+            }
+        }
+
+        // Auto-sample while recording.
+        if(isRecording){
+            auto* player = findEntityByName(world, "player");
+            if(player){
+                const glm::vec3 pos = player->localTransform.position;
+                const float dist = glm::distance(
+                    glm::vec2(pos.x, pos.z),
+                    glm::vec2(lastRecordedPos.x, lastRecordedPos.z)
+                );
+                if(dist >= recordDistanceInterval){
+                    recordedPositions.push_back(pos);
+                    lastRecordedPos = pos;
+                }
+            }
+        }
+
+        // Build checkpoint positions vector for AI cars.
+        std::vector<glm::vec3> cpPositions;
+        cpPositions.reserve(checkpoints.size());
+        for (const auto& cp : checkpoints) cpPositions.push_back(cp.pos);
+
         // Update car controller system (handles snapping and position alignment even during countdown)
         if(!freeRoaming){
-            carControllerSystem.update(&world, (float)deltaTime, isRaceStarted);
+            carControllerSystem.update(&world, (float)deltaTime, isRaceStarted, cpPositions);
         }
 
         updateRaceLogic((float)deltaTime);
@@ -867,6 +1051,26 @@ class Playstate: public our::State {
                 }
                 if(ImGui::Button("Add Checkpoint (N)", ImVec2(-1, 0))){
                     saveCheckpoint(false);
+                }
+                ImGui::Separator();
+                // Auto-recording controls.
+                if(isRecording){
+                    ImGui::TextColored(ImVec4(1.0f, 0.2f, 0.2f, 1.0f), "** RECORDING ** (%d pts)", (int)recordedPositions.size());
+                    if(ImGui::Button("Stop & Save (R)", ImVec2(-1, 0))){
+                        isRecording = false;
+                        saveRecordedLap();
+                    }
+                } else {
+                    if(ImGui::Button("Auto-Record Lap (R)", ImVec2(-1, 0))){
+                        isRecording = true;
+                        recordedPositions.clear();
+                        auto* player2 = findEntityByName(world, "player");
+                        if(player2){
+                            lastRecordedPos = player2->localTransform.position;
+                            recordedPositions.push_back(lastRecordedPos);
+                        }
+                        lastCheckpointStatus = "RECORDING started - drive a lap!";
+                    }
                 }
                 if(!lastCheckpointStatus.empty()){
                     ImGui::Separator();
