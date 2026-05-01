@@ -213,7 +213,6 @@ int our::Application::run(int run_for_frames) {
     ImGui::CreateContext();
     ImGuiIO& io = ImGui::GetIO();
     ImGui::StyleColorsDark();
-
     // Initialize ImGui for GLFW and OpenGL
     ImGui_ImplGlfw_InitForOpenGL(window, true);
     ImGui_ImplOpenGL3_Init("#version 330 core");
@@ -258,6 +257,7 @@ int our::Application::run(int run_for_frames) {
         ImGui::NewFrame();
 
         if(currentState) currentState->onImmediateGui(); // Call to run any required Immediate GUI.
+
 
         // If ImGui is using the mouse or keyboard, then we don't want the captured events to affect our keyboard and mouse objects.
         // For example, if you're focusing on an input and writing "W", the keyboard object shouldn't record this event.
