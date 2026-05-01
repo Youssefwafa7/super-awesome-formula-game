@@ -259,6 +259,16 @@ int our::Application::run(int run_for_frames) {
 
         if(currentState) currentState->onImmediateGui(); // Call to run any required Immediate GUI.
 
+        // Display FPS in the top-left corner
+        {
+            ImGui::SetNextWindowPos(ImVec2(10.0f, 10.0f), ImGuiCond_Always);
+            ImGui::SetNextWindowBgAlpha(0.35f);
+            ImGuiWindowFlags fpsFlags = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav;
+            ImGui::Begin("Global_FPS", nullptr, fpsFlags);
+            ImGui::Text("FPS  %.1f", ImGui::GetIO().Framerate);
+            ImGui::End();
+        }
+
         // If ImGui is using the mouse or keyboard, then we don't want the captured events to affect our keyboard and mouse objects.
         // For example, if you're focusing on an input and writing "W", the keyboard object shouldn't record this event.
         keyboard.setEnabled(!io.WantCaptureKeyboard, window);

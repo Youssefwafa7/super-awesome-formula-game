@@ -678,26 +678,32 @@ namespace our {
                 } else {
                     // Player car: read keyboard/gamepad input.
                     if(isRaceStarted){
-                        throttle = (keyboard.isPressed(GLFW_KEY_W) ? 1.0f : 0.0f) - (keyboard.isPressed(GLFW_KEY_S) ? 1.0f : 0.0f);
-                        steer = (keyboard.isPressed(GLFW_KEY_A) ? 1.0f : 0.0f) - (keyboard.isPressed(GLFW_KEY_D) ? 1.0f : 0.0f);
+                        // Player 1 uses WASD, Player 2 uses Arrows
+                        if (entity->name == "player2") {
+                            throttle = (keyboard.isPressed(GLFW_KEY_UP) ? 1.0f : 0.0f) - (keyboard.isPressed(GLFW_KEY_DOWN) ? 1.0f : 0.0f);
+                            steer = (keyboard.isPressed(GLFW_KEY_LEFT) ? 1.0f : 0.0f) - (keyboard.isPressed(GLFW_KEY_RIGHT) ? 1.0f : 0.0f);
+                        } else {
+                            throttle = (keyboard.isPressed(GLFW_KEY_W) ? 1.0f : 0.0f) - (keyboard.isPressed(GLFW_KEY_S) ? 1.0f : 0.0f);
+                            steer = (keyboard.isPressed(GLFW_KEY_A) ? 1.0f : 0.0f) - (keyboard.isPressed(GLFW_KEY_D) ? 1.0f : 0.0f);
 
-                        GLFWgamepadstate state;
-                        if (glfwGetGamepadState(GLFW_JOYSTICK_1, &state)) {
-                            float rt = (state.axes[GLFW_GAMEPAD_AXIS_RIGHT_TRIGGER] + 1.0f) / 2.0f;
-                            float lt = (state.axes[GLFW_GAMEPAD_AXIS_LEFT_TRIGGER] + 1.0f) / 2.0f;
-                            float leftX = state.axes[GLFW_GAMEPAD_AXIS_LEFT_X];
+                            // Support gamepad for the first player (or any entity named "player")
+                            if (entity->name == "player") {
+                                GLFWgamepadstate state;
+                                if (glfwGetGamepadState(GLFW_JOYSTICK_1, &state)) {
+                                    float rt = (state.axes[GLFW_GAMEPAD_AXIS_RIGHT_TRIGGER] + 1.0f) / 2.0f;
+                                    float lt = (state.axes[GLFW_GAMEPAD_AXIS_LEFT_TRIGGER] + 1.0f) / 2.0f;
+                                    float leftX = state.axes[GLFW_GAMEPAD_AXIS_LEFT_X];
 
-                            float rb = state.buttons[GLFW_GAMEPAD_BUTTON_RIGHT_BUMPER] == GLFW_PRESS ? 1.0f : 0.0f;
-                            float lb = state.buttons[GLFW_GAMEPAD_BUTTON_LEFT_BUMPER] == GLFW_PRESS ? 1.0f : 0.0f;
+                                    // Deadzone for analog stick
+                                    if (std::abs(leftX) < 0.1f) leftX = 0.0f;
 
-                            // Deadzone for analog stick
-                            if (std::abs(leftX) < 0.1f) leftX = 0.0f;
+                                    throttle += (rt - lt);
+                                    steer += -leftX; // Left is positive, Right is negative in this engine
 
-                            throttle += (rt - lt) + (rb - lb);
-                            steer += -leftX; // Left is positive, Right is negative in this engine
-
-                            throttle = std::clamp(throttle, -1.0f, 1.0f);
-                            steer = std::clamp(steer, -1.0f, 1.0f);
+                                    throttle = std::clamp(throttle, -1.0f, 1.0f);
+                                    steer = std::clamp(steer, -1.0f, 1.0f);
+                                }
+                            }
                         }
                     }
                 }
