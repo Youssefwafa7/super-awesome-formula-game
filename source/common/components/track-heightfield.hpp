@@ -70,6 +70,13 @@ namespace our {
         std::vector<uint8_t> wall;          // 1 if this cell is blocked by wall geometry/material
         std::vector<WallSegment> wallSegments;
 
+        // Spatial grid for fast wall-segment lookups (used by resolveWallCollision).
+        // Each cell holds indices into wallSegments for segments overlapping that cell.
+        std::vector<std::vector<uint32_t>> wallSegGrid;
+        int wallSegGridW = 0, wallSegGridH = 0;
+        float wallSegGridCellSize = 1.0f;
+        float wallSegGridMinX = 0.0f, wallSegGridMinZ = 0.0f;
+
         // Per-triangle drivable surface mesh for precise normal queries.
         std::vector<DrivableTri> drivableTris;
         // 2D spatial grid: triGrid[cellIdx] holds indices into drivableTris
