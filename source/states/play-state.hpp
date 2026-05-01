@@ -15,6 +15,7 @@
 #include <components/car-controller.hpp>
 #include <components/track-heightfield.hpp>
 #include "miniaudio.h"
+#include <deserialize-utils.hpp>
 
 #include <string>
 #include <fstream>
@@ -32,7 +33,7 @@ class Playstate: public our::State {
     our::ChaseCameraSystem chaseCameraSystem;
     our::WheelSpinSystem wheelSpinSystem;
 
-    bool debugCollisionOverlayEnabled = true;
+    bool debugCollisionOverlayEnabled = false;
     bool debugDrawCarBox = true;
     bool debugDrawWallBoxes = true;
     bool debugDrawWallSegments = false;
@@ -195,19 +196,31 @@ class Playstate: public our::State {
             {0.3f, 1.0f, 0.3f, 1.0f},  // green
         };
 
+        // Get starting grid from track config
+        const auto& fullConfig = getApp()->getConfig();
+        const auto& sceneConfig = fullConfig["scene"];
+        const auto* trackPreset = findPresetById(sceneConfig["presets"]["tracks"], currentTrackId);
+        const nlohmann::json* spawnArray = (trackPreset && trackPreset->contains("spawn") && (*trackPreset)["spawn"].is_array()) 
+                                            ? &((*trackPreset)["spawn"]) : nullptr;
+
         for (int i = 0; i < kNumAICars; i++) {
             try {
                 our::Entity* aiEnt = world.add();
                 aiEnt->name = "ai_car_" + std::to_string(i);
                 aiEnt->parent = nullptr;
 
-                // Stagger positions behind the player in a 2-wide grid.
-                int row = i / 2 + 1;
-                int col = (i % 2 == 0) ? -1 : 1;
-                glm::vec3 offset = -fwd * (rowSpacing * (float)row) + right * (colSpacing * (float)col * 0.5f);
-
-                aiEnt->localTransform.position = spawnPos + offset;
-                aiEnt->localTransform.rotation = player->localTransform.rotation;
+                if (spawnArray && i < (int)spawnArray->size()) {
+                    const auto& s = (*spawnArray)[i];
+                    aiEnt->localTransform.position = s.value("position", glm::vec3(0.0f));
+                    aiEnt->localTransform.rotation = glm::radians(s.value("rotation", glm::vec3(0.0f)));
+                } else {
+                    // Fallback to relative positioning if no grid defined
+                    int row = i / 2 + 1;
+                    int col = (i % 2 == 0) ? -1 : 1;
+                    glm::vec3 offset = -fwd * (rowSpacing * (float)row) + right * (colSpacing * (float)col * 0.5f);
+                    aiEnt->localTransform.position = spawnPos + offset;
+                    aiEnt->localTransform.rotation = player->localTransform.rotation;
+                }
                 aiEnt->localTransform.scale = player->localTransform.scale;
 
                 // ── Car Controller (copy tuning from player) ──
@@ -704,24 +717,34 @@ class Playstate: public our::State {
             };
 
             // Override spawn from track preset if provided.
-            if(trackPreset != nullptr && trackPreset->contains("spawn") && (*trackPreset)["spawn"].is_object()){
+            if(trackPreset != nullptr && trackPreset->contains("spawn")){
                 const auto& spawn = (*trackPreset)["spawn"];
-                if(spawn.contains("position") && player.contains("position") && player["position"].is_array() && spawn["position"].is_array()){
-                    const glm::vec3 playerPosition = readVec3(player["position"], glm::vec3(0.0f));
-                    const glm::vec3 spawnPosition = readVec3(spawn["position"], glm::vec3(0.0f));
-                    const glm::vec3 combinedPosition = playerPosition + spawnPosition;
-                    player["position"] = nlohmann::json::array({combinedPosition.x, combinedPosition.y, combinedPosition.z});
-                } else if(spawn.contains("position")) {
-                    player["position"] = spawn["position"];
+                const nlohmann::json* playerSpawn = nullptr;
+                
+                if(spawn.is_array() && spawn.size() >= 3){
+                    playerSpawn = &spawn[2]; // Use index 2 for player
+                } else if(spawn.is_object()){
+                    playerSpawn = &spawn;
                 }
 
-                if(spawn.contains("rotation") && player.contains("rotation") && player["rotation"].is_array() && spawn["rotation"].is_array()){
-                    const glm::vec3 playerRotation = readVec3(player["rotation"], glm::vec3(0.0f));
-                    const glm::vec3 spawnRotation = readVec3(spawn["rotation"], glm::vec3(0.0f));
-                    const glm::vec3 combinedRotation = playerRotation + spawnRotation;
-                    player["rotation"] = nlohmann::json::array({combinedRotation.x, combinedRotation.y, combinedRotation.z});
-                } else if(spawn.contains("rotation")) {
-                    player["rotation"] = spawn["rotation"];
+                if(playerSpawn){
+                    if(playerSpawn->contains("position") && player.contains("position") && player["position"].is_array() && (*playerSpawn)["position"].is_array()){
+                        const glm::vec3 playerPosition = readVec3(player["position"], glm::vec3(0.0f));
+                        const glm::vec3 spawnPosition = readVec3((*playerSpawn)["position"], glm::vec3(0.0f));
+                        const glm::vec3 combinedPosition = playerPosition + spawnPosition;
+                        player["position"] = nlohmann::json::array({combinedPosition.x, combinedPosition.y, combinedPosition.z});
+                    } else if(playerSpawn->contains("position")) {
+                        player["position"] = (*playerSpawn)["position"];
+                    }
+
+                    if(playerSpawn->contains("rotation") && player.contains("rotation") && player["rotation"].is_array() && (*playerSpawn)["rotation"].is_array()){
+                        const glm::vec3 playerRotation = readVec3(player["rotation"], glm::vec3(0.0f));
+                        const glm::vec3 spawnRotation = readVec3((*playerSpawn)["rotation"], glm::vec3(0.0f));
+                        const glm::vec3 combinedRotation = playerRotation + spawnRotation;
+                        player["rotation"] = nlohmann::json::array({combinedRotation.x, combinedRotation.y, combinedRotation.z});
+                    } else if(playerSpawn->contains("rotation")) {
+                        player["rotation"] = (*playerSpawn)["rotation"];
+                    }
                 }
             }
 

@@ -206,10 +206,14 @@
         {
           "id": "montreal",
           "label": "Montreal",
-          "spawn": {
-            "position": [203.05, -0.7, 67.89],
-            "rotation": [0, -630.0, 0]
-          },
+          "spawn": [
+            {
+              "position": [203.05, -0.7, 67.89],
+              "rotation": [0, -630.0, 0]
+            },
+            { "position": [190.83, -0.7,74.74], "rotation": [0, -630, 0] },
+            { "position": [177.97, -0.7, 67.95], "rotation": [0, -631, 0] }
+          ],
           "entity": {
             "name": "track",
             "position": [-18.04, 0.0, -26.12],
@@ -274,11 +278,14 @@
         {
           "id": "silverstone",
           "label": "Silverstone",
-          "spawn": {
-            // Spawn on the start/finish area (world coordinates).
-            "position": [-500.89, 0.85, -129.9],
-            "rotation": [0, -187.5, 0]
-          },
+          "spawn": [
+            {
+              "position": [-500.89, 0.85, -129.9],
+              "rotation": [0, -187.5, 0]
+            },
+            { "position": [-508.46, 0.49, -118.82], "rotation": [0, -186.8, 0] },
+            { "position": [-504.42, 0.45, -106.99], "rotation": [0, -188, 0] }
+          ],
           "entity": {
             "name": "track",
             "position": [0.0, 0.0, 0.0],
@@ -344,10 +351,14 @@
         {
           "id": "spa",
           "label": "Spa",
-          "spawn": {
-            "position": [-25.3, -0.52, -4.61],
-            "rotation": [0, -269, 0]
-          },
+          "spawn": [
+            {
+              "position": [-25.3, -0.52, -4.61],
+              "rotation": [0, -269, 0]
+            },
+            { "position": [-30.13, -0.44, 3.74], "rotation": [0, -270, 0] },
+            { "position": [-36.17, -0.32, -4.82], "rotation": [0, -270, 0] }
+          ],
           "entity": {
             "name": "track",
             "position": [0, 0, 0],

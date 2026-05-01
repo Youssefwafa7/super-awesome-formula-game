@@ -19,6 +19,17 @@ namespace glm {
         for(length_t index = 0; index < L; ++index)
             v[index] = j[index].get<T>();
     }
+
+    // Explicit overloads to help some compilers find them for json::value
+    inline void from_json(const nlohmann::json& j, vec2& v) {
+        v.x = j[0].get<float>(); v.y = j[1].get<float>();
+    }
+    inline void from_json(const nlohmann::json& j, vec3& v) {
+        v.x = j[0].get<float>(); v.y = j[1].get<float>(); v.z = j[2].get<float>();
+    }
+    inline void from_json(const nlohmann::json& j, vec4& v) {
+        v.x = j[0].get<float>(); v.y = j[1].get<float>(); v.z = j[2].get<float>(); v.w = j[3].get<float>();
+    }
 }
 
 namespace our {
