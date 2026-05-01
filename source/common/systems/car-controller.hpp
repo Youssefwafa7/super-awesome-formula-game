@@ -477,11 +477,13 @@ namespace our {
                         float rt = (state.axes[GLFW_GAMEPAD_AXIS_RIGHT_TRIGGER] + 1.0f) / 2.0f;
                         float lt = (state.axes[GLFW_GAMEPAD_AXIS_LEFT_TRIGGER] + 1.0f) / 2.0f;
                         float leftX = state.axes[GLFW_GAMEPAD_AXIS_LEFT_X];
+                        float rb = state.buttons[GLFW_GAMEPAD_BUTTON_RIGHT_BUMPER] == GLFW_PRESS ? 1.0f : 0.0f;
+                        float lb = state.buttons[GLFW_GAMEPAD_BUTTON_LEFT_BUMPER] == GLFW_PRESS ? 1.0f : 0.0f;
 
                         // Deadzone for analog stick
                         if (std::abs(leftX) < 0.1f) leftX = 0.0f;
 
-                        throttle += (rt - lt);
+                        throttle += (rt - lt) + (rb - lb);
                         steer += -leftX; // Left is positive, Right is negative in this engine
 
                         throttle = std::clamp(throttle, -1.0f, 1.0f);

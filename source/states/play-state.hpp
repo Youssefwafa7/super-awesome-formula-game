@@ -222,7 +222,7 @@ class Playstate: public our::State {
                     }
 
                     if (numSkipped > 0) {
-                        totalPenaltyTime += (float)numSkipped * 20.0f; 
+                        totalPenaltyTime += (float)numSkipped * 1.0f; 
                     }
 
                     // Check for lap completion
