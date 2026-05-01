@@ -226,11 +226,14 @@ class Playstate: public our::State {
 
                 // ── Car Controller (copy tuning from player) ──
                 auto* aiCarCtrl = aiEnt->addComponent<our::CarControllerComponent>();
-                // Make AI cars slightly slower and give them more turn speed (tighter turning radius)
-                // so they can follow the track easier without sliding out.
-                aiCarCtrl->acceleration = playerCar->acceleration * 0.8f;
+                // Give AI cars individual speeds: first AI is fastest, second is slightly slower.
+                float speedMultiplier = 0.93f; // First AI
+                if (i == 1) speedMultiplier = 0.90f; // Second AI
+                else if (i > 1) speedMultiplier = 0.85f; // Any extra AI
+
+                aiCarCtrl->acceleration = playerCar->acceleration * speedMultiplier;
                 aiCarCtrl->brakeAcceleration = playerCar->brakeAcceleration * 1.4f; // Stop faster
-                aiCarCtrl->maxSpeed = playerCar->maxSpeed * 0.8f;
+                aiCarCtrl->maxSpeed = playerCar->maxSpeed * speedMultiplier;
                 aiCarCtrl->maxReverseSpeed = playerCar->maxReverseSpeed;
                 aiCarCtrl->turnSpeed = playerCar->turnSpeed * 1.5f;
                 aiCarCtrl->linearDamping = playerCar->linearDamping;
@@ -1038,38 +1041,7 @@ class Playstate: public our::State {
         }
         ImGui::End();
 
-        // Bottom-left speedometer HUD.
-        {
-            const ImVec2 display = ImGui::GetIO().DisplaySize;
 
-            ImGui::SetNextWindowPos(ImVec2(10.0f, std::max(10.0f, display.y - 70.0f)), ImGuiCond_Always);
-            ImGui::SetNextWindowBgAlpha(0.35f);
-
-            ImGuiWindowFlags spdFlags = 0;
-            spdFlags |= ImGuiWindowFlags_NoDecoration;
-            spdFlags |= ImGuiWindowFlags_AlwaysAutoResize;
-            spdFlags |= ImGuiWindowFlags_NoSavedSettings;
-            spdFlags |= ImGuiWindowFlags_NoFocusOnAppearing;
-            spdFlags |= ImGuiWindowFlags_NoNav;
-
-            if(ImGui::Begin("Speed", nullptr, spdFlags)){
-                auto* player = findEntityByName(world, "player");
-                if(player){
-                    auto* car = player->getComponent<our::CarControllerComponent>();
-                    if(car){
-                        const float speedMS = std::abs(car->speed);
-                        const float speedKMH = speedMS * 3.6f * 1.5f;
-                        const bool reversing = (car->speed < -0.1f);
-                        ImGui::Text("%s  %.1f km/h", reversing ? "R" : "D", speedKMH);
-                    } else {
-                        ImGui::TextUnformatted("no car controller");
-                    }
-                } else {
-                    ImGui::TextUnformatted("player not found");
-                }
-            }
-            ImGui::End();
-        }
 
         // Countdown timer display
         if (!isRaceStarted && introAudioDone) {
@@ -1193,39 +1165,135 @@ class Playstate: public our::State {
             raceFlags |= ImGuiWindowFlags_NoNav;
 
             if(ImGui::Begin("Race HUD", nullptr, raceFlags)){
-                ImGui::SetWindowFontScale(1.5f);
                 if (!crossedStartLine) {
                     ImGui::SetWindowFontScale(2.0f);
                     ImGui::TextColored(ImVec4(1.0f, 1.0f, 0.2f, 1.0f), "CROSS THE START LINE!");
+                    ImGui::SetWindowFontScale(1.0f);
                 } else {
-                    ImGui::SetWindowFontScale(3.0f); // Even bigger
+                    // --- TOP ROW: LAP & POSITION ---
+                    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.7f, 0.7f, 0.7f, 1.0f));
+                    ImGui::SetWindowFontScale(1.0f);
+                    ImGui::Text("LAP");
+                    ImGui::SameLine(180.0f);
+                    ImGui::Text("POSITION");
+                    ImGui::PopStyleColor();
+
+                    ImGui::SetWindowFontScale(3.5f);
+                    ImGui::TextColored(ImVec4(1.0f, 1.0f, 1.0f, 1.0f), "%d", std::min(currentLap, totalLaps));
+                    ImGui::SameLine();
+                    ImGui::SetWindowFontScale(1.5f);
+                    ImGui::TextColored(ImVec4(0.5f, 0.5f, 0.5f, 1.0f), "/ %d", totalLaps);
                     
-                    ImGui::Text("LAP: %d / %d", std::min(currentLap, totalLaps), totalLaps);
+                    ImGui::SameLine(180.0f);
+                    
+                    ImGui::SetWindowFontScale(3.5f);
+                    ImVec4 posColor = ImVec4(1.0f, 1.0f, 1.0f, 1.0f); // Default white
+                    if (playerPosition == 1) posColor = ImVec4(1.0f, 0.84f, 0.0f, 1.0f); // Gold
+                    else if (playerPosition == 2) posColor = ImVec4(0.75f, 0.75f, 0.75f, 1.0f); // Silver
+                    else if (playerPosition == 3) posColor = ImVec4(0.8f, 0.5f, 0.2f, 1.0f); // Bronze
+                    
+                    ImGui::TextColored(posColor, "%d", playerPosition);
                     ImGui::SameLine();
-                    ImGui::Dummy(ImVec2(150.0f, 0.0f)); // Fixed large gap
-                    ImGui::SameLine();
-                    ImGui::Text("POS: %d / %d", playerPosition, (int)aiRacers.size() + 1);
-                }
-                
-                ImGui::Separator();
-                
-                ImGui::Text("Time: %.2f", currentLapTime);
-                if(bestLapTime > 0) {
-                    ImGui::SameLine(200);
-                    ImGui::Text("Best: %.2f", bestLapTime);
-                }
-                
-                if(totalPenaltyTime > 0) {
-                    ImGui::TextColored(ImVec4(1.0f, 0.3f, 0.3f, 1.0f), "Penalty: +%.1fs", totalPenaltyTime);
+                    ImGui::SetWindowFontScale(1.5f);
+                    ImGui::TextColored(ImVec4(0.5f, 0.5f, 0.5f, 1.0f), "/ %d", (int)aiRacers.size() + 1);
+                    
+                    ImGui::SetWindowFontScale(1.0f);
+                    ImGui::Separator();
+                    
+                    // --- BOTTOM ROW: TIMES & PENALTIES ---
+                    ImGui::SetWindowFontScale(1.5f);
+                    ImGui::TextColored(ImVec4(0.8f, 0.8f, 0.8f, 1.0f), "TIME:");
+                    ImGui::SameLine(160.0f);
+                    ImGui::TextColored(ImVec4(1.0f, 1.0f, 1.0f, 1.0f), "%.2f", currentLapTime);
+
+                    if(bestLapTime > 0) {
+                        ImGui::TextColored(ImVec4(0.8f, 0.8f, 0.8f, 1.0f), "BEST:");
+                        ImGui::SameLine(160.0f);
+                        ImGui::TextColored(ImVec4(0.3f, 1.0f, 0.3f, 1.0f), "%.2f", bestLapTime);
+                    }
+                    
+                    if(totalPenaltyTime > 0) {
+                        ImGui::TextColored(ImVec4(1.0f, 0.2f, 0.2f, 1.0f), "PENALTY:");
+                        ImGui::SameLine(160.0f);
+                        ImGui::TextColored(ImVec4(1.0f, 0.2f, 0.2f, 1.0f), "+%.1fs", totalPenaltyTime);
+                    }
+                    ImGui::SetWindowFontScale(1.0f);
                 }
 
                 if(raceFinished) {
                     ImGui::Separator();
+                    ImGui::SetWindowFontScale(2.0f);
                     ImGui::TextColored(ImVec4(0.2f, 1.0f, 0.2f, 1.0f), "RACE FINISHED!");
                     ImGui::Text("Final Rank: %d", playerPosition);
+                    ImGui::SetWindowFontScale(1.0f);
                 }
             }
             ImGui::End();
+        }
+
+        // Speedometer HUD
+        {
+            auto* player = findEntityByName(world, "player");
+            our::CarControllerComponent* playerCar = nullptr;
+            if(player) playerCar = player->getComponent<our::CarControllerComponent>();
+
+            if(playerCar) {
+                const ImVec2 display = ImGui::GetIO().DisplaySize;
+                ImGui::SetNextWindowPos(ImVec2(display.x - 150.0f, display.y - 150.0f), ImGuiCond_Always, ImVec2(0.5f, 0.5f));
+                ImGui::SetNextWindowBgAlpha(0.0f); // Transparent background
+
+                ImGuiWindowFlags speedFlags = 0;
+                speedFlags |= ImGuiWindowFlags_NoDecoration;
+                speedFlags |= ImGuiWindowFlags_AlwaysAutoResize;
+                speedFlags |= ImGuiWindowFlags_NoSavedSettings;
+                speedFlags |= ImGuiWindowFlags_NoFocusOnAppearing;
+                speedFlags |= ImGuiWindowFlags_NoNav;
+
+                if(ImGui::Begin("Speedometer", nullptr, speedFlags)){
+                    ImDrawList* draw_list = ImGui::GetWindowDrawList();
+                    ImVec2 center = ImGui::GetCursorScreenPos();
+                    center.x += 75.0f;
+                    center.y += 75.0f;
+                    float radius = 70.0f;
+
+                    // Draw background dial (dark grey circle)
+                    draw_list->AddCircleFilled(center, radius, IM_COL32(30, 30, 30, 200), 32);
+                    draw_list->AddCircle(center, radius, IM_COL32(100, 100, 100, 255), 32, 2.0f);
+
+                    float speed = std::abs(playerCar->speed);
+                    float maxSpeed = playerCar->maxSpeed; 
+                    float speedRatio = std::clamp(speed / maxSpeed, 0.0f, 1.0f);
+
+                    // Draw tick marks
+                    for(int i = 0; i <= 10; i++) {
+                        float angle = 3.14159f * 0.75f + (i / 10.0f) * 3.14159f * 1.5f;
+                        ImVec2 p1 = ImVec2(center.x + std::cos(angle) * (radius - 10.0f), center.y + std::sin(angle) * (radius - 10.0f));
+                        ImVec2 p2 = ImVec2(center.x + std::cos(angle) * radius, center.y + std::sin(angle) * radius);
+                        draw_list->AddLine(p1, p2, IM_COL32(200, 200, 200, 255), (i % 5 == 0) ? 3.0f : 1.0f);
+                    }
+
+                    // Draw needle (red)
+                    float needleAngle = 3.14159f * 0.75f + speedRatio * 3.14159f * 1.5f;
+                    ImVec2 needleEnd = ImVec2(center.x + std::cos(needleAngle) * (radius - 15.0f), center.y + std::sin(needleAngle) * (radius - 15.0f));
+                    draw_list->AddLine(center, needleEnd, IM_COL32(255, 50, 50, 255), 4.0f);
+                    draw_list->AddCircleFilled(center, 8.0f, IM_COL32(200, 200, 200, 255)); // Center pin
+
+                    // Draw speed text (convert m/s to km/h approx, matching the old HUD's 1.5x multiplier)
+                    std::string speedStr = std::to_string((int)(speed * 3.6f * 1.5f));
+                    ImGui::SetWindowFontScale(2.0f);
+                    ImVec2 textSize = ImGui::CalcTextSize(speedStr.c_str());
+                    draw_list->AddText(ImGui::GetFont(), ImGui::GetFontSize(), ImVec2(center.x - textSize.x / 2.0f, center.y + 15.0f), IM_COL32(255, 255, 255, 255), speedStr.c_str());
+                    
+                    ImGui::SetWindowFontScale(1.0f);
+                    std::string unitStr = "km/h";
+                    ImVec2 unitSize = ImGui::CalcTextSize(unitStr.c_str());
+                    draw_list->AddText(ImGui::GetFont(), ImGui::GetFontSize(), ImVec2(center.x - unitSize.x / 2.0f, center.y + 45.0f), IM_COL32(150, 150, 150, 255), unitStr.c_str());
+
+                    // Dummy size to push the window size
+                    ImGui::Dummy(ImVec2(150.0f, 150.0f));
+                }
+                ImGui::End();
+            }
         }
     }
 

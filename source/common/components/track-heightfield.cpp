@@ -143,15 +143,52 @@ namespace our {
         const float r2 = r * r;
         bool collidedAny = false;
 
+        // Helper: gather unique nearby segment indices from the spatial grid.
+        // We check cells in a small area around the position (expanded by radius).
+        auto gatherNearby = [&](const glm::vec2& pos, float expand, std::vector<uint32_t>& out) {
+            out.clear();
+            if(wallSegGridW <= 0 || wallSegGridH <= 0){
+                // Fallback: no grid built, use all segments.
+                out.reserve(wallSegments.size());
+                for(uint32_t i = 0; i < (uint32_t)wallSegments.size(); i++) out.push_back(i);
+                return;
+            }
+            const float qMinX = pos.x - expand;
+            const float qMaxX = pos.x + expand;
+            const float qMinZ = pos.y - expand;
+            const float qMaxZ = pos.y + expand;
+
+            int gx0 = std::clamp((int)std::floor((qMinX - wallSegGridMinX) / wallSegGridCellSize), 0, wallSegGridW - 1);
+            int gx1 = std::clamp((int)std::floor((qMaxX - wallSegGridMinX) / wallSegGridCellSize), 0, wallSegGridW - 1);
+            int gz0 = std::clamp((int)std::floor((qMinZ - wallSegGridMinZ) / wallSegGridCellSize), 0, wallSegGridH - 1);
+            int gz1 = std::clamp((int)std::floor((qMaxZ - wallSegGridMinZ) / wallSegGridCellSize), 0, wallSegGridH - 1);
+
+            for(int gz = gz0; gz <= gz1; gz++){
+                for(int gx = gx0; gx <= gx1; gx++){
+                    const auto& cell = wallSegGrid[(size_t)(gz * wallSegGridW + gx)];
+                    for(uint32_t idx : cell) out.push_back(idx);
+                }
+            }
+            // Remove duplicates (segments can span multiple cells).
+            std::sort(out.begin(), out.end());
+            out.erase(std::unique(out.begin(), out.end()), out.end());
+        };
+
+        std::vector<uint32_t> nearby;
+        nearby.reserve(64);
+
         for(int iter = 0; iter < iterations; iter++){
             bool collidedThisIter = false;
 
-            for(const auto& seg : wallSegments){
-                const float minX = std::min(seg.a.x, seg.b.x) - r;
-                const float maxX = std::max(seg.a.x, seg.b.x) + r;
-                const float minZ = std::min(seg.a.y, seg.b.y) - r;
-                const float maxZ = std::max(seg.a.y, seg.b.y) + r;
-                if(position.x < minX || position.x > maxX || position.y < minZ || position.y > maxZ) continue;
+            gatherNearby(position, r, nearby);
+
+            for(uint32_t si : nearby){
+                const auto& seg = wallSegments[si];
+                const float sMinX = std::min(seg.a.x, seg.b.x) - r;
+                const float sMaxX = std::max(seg.a.x, seg.b.x) + r;
+                const float sMinZ = std::min(seg.a.y, seg.b.y) - r;
+                const float sMaxZ = std::max(seg.a.y, seg.b.y) + r;
+                if(position.x < sMinX || position.x > sMaxX || position.y < sMinZ || position.y > sMaxZ) continue;
 
                 const glm::vec2 ab = seg.b - seg.a;
                 const float abLen2 = glm::dot(ab, ab);
@@ -193,7 +230,10 @@ namespace our {
             float bestDist2 = std::numeric_limits<float>::infinity();
             glm::vec2 bestNormal(0.0f, 0.0f);
 
-            for(const auto& seg : wallSegments){
+            gatherNearby(position, r, nearby);
+
+            for(uint32_t si : nearby){
+                const auto& seg = wallSegments[si];
                 const glm::vec2 ab = seg.b - seg.a;
                 const float abLen2 = glm::dot(ab, ab);
                 float t = 0.0f;
@@ -616,6 +656,39 @@ namespace our {
                     if(!isWall(x + 1, z)) wallSegments.push_back({glm::vec2(x1, z0), glm::vec2(x1, z1)});
                     if(!isWall(x, z - 1)) wallSegments.push_back({glm::vec2(x0, z0), glm::vec2(x1, z0)});
                     if(!isWall(x, z + 1)) wallSegments.push_back({glm::vec2(x0, z1), glm::vec2(x1, z1)});
+                }
+            }
+        }
+
+        // Build spatial grid for wall segments so resolveWallCollision is O(1) per query.
+        wallSegGrid.clear();
+        wallSegGridW = 0;
+        wallSegGridH = 0;
+        if(!wallSegments.empty()){
+            // Use a coarse cell size (e.g. 4x the heightfield cell) for the segment grid.
+            wallSegGridCellSize = std::max(cellSize * 4.0f, 1.0f);
+            wallSegGridMinX = mn.x;
+            wallSegGridMinZ = mn.z;
+            wallSegGridW = std::max(1, (int)std::ceil(spanX / wallSegGridCellSize) + 1);
+            wallSegGridH = std::max(1, (int)std::ceil(spanZ / wallSegGridCellSize) + 1);
+            wallSegGrid.resize((size_t)wallSegGridW * (size_t)wallSegGridH);
+
+            for(uint32_t si = 0; si < (uint32_t)wallSegments.size(); si++){
+                const auto& seg = wallSegments[si];
+                const float sMinX = std::min(seg.a.x, seg.b.x);
+                const float sMaxX = std::max(seg.a.x, seg.b.x);
+                const float sMinZ = std::min(seg.a.y, seg.b.y);
+                const float sMaxZ = std::max(seg.a.y, seg.b.y);
+
+                int gx0 = std::clamp((int)std::floor((sMinX - wallSegGridMinX) / wallSegGridCellSize), 0, wallSegGridW - 1);
+                int gx1 = std::clamp((int)std::floor((sMaxX - wallSegGridMinX) / wallSegGridCellSize), 0, wallSegGridW - 1);
+                int gz0 = std::clamp((int)std::floor((sMinZ - wallSegGridMinZ) / wallSegGridCellSize), 0, wallSegGridH - 1);
+                int gz1 = std::clamp((int)std::floor((sMaxZ - wallSegGridMinZ) / wallSegGridCellSize), 0, wallSegGridH - 1);
+
+                for(int gz = gz0; gz <= gz1; gz++){
+                    for(int gx = gx0; gx <= gx1; gx++){
+                        wallSegGrid[(size_t)(gz * wallSegGridW + gx)].push_back(si);
+                    }
                 }
             }
         }

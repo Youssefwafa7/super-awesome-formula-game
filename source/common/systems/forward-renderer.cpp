@@ -67,7 +67,12 @@ namespace our {
             
             // Load the sky texture (note that we don't need mipmaps since we want to avoid any unnecessary blurring while rendering the sky)
             std::string skyTextureFile = config.value<std::string>("sky", "");
-            Texture2D* skyTexture = texture_utils::loadImage(skyTextureFile, false);
+            Texture2D* skyTexture = nullptr;
+            if(skyTextureFile.size() > 4 && skyTextureFile.substr(skyTextureFile.size() - 4) == ".hdr"){
+                skyTexture = texture_utils::loadImageHDR(skyTextureFile);
+            } else {
+                skyTexture = texture_utils::loadImage(skyTextureFile, false);
+            }
 
             // Setup a sampler for the sky 
             Sampler* skySampler = new Sampler();

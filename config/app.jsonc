@@ -10,7 +10,7 @@
   },
   "scene": {
     "renderer": {
-      "sky": "assets/textures/sky.jpg",
+      "sky": "assets/models/kloppenheim_03_puresky_4k.hdr",
       "sun": "assets/textures/sun.png",
       "sunDirection": [-2.0, -0.75, -0.45],
       "sunDistance": 500.0,
@@ -23,6 +23,13 @@
       "ambient": {
         "color": [0.05, 0.06, 0.08],
         "intensity": 1.0
+      },
+      "fog": {
+        "enabled": true,
+        "color": [0.5, 0.55, 0.6],
+        "start": 120.0,
+        "end": 450.0,
+        "renderDistance": 500.0
       }
     },
     "assets": {
@@ -368,11 +375,11 @@
               {
                 "type": "Track Heightfield",
                 "model": "assets/models/Cartoon_Race_Track_Spa/Cartoon_Race_Track_Spa.gltf",
-                "cellSize": 0.2,
+                "cellSize": 0.6,
                 "minNormalY": 0.8,
                 "hardWallNormalY": 0.0,
                 "treatUnknownAsGrass": true,
-                "grassSearchCells": 2,
+                "grassSearchCells": 4,
                 "buildWallSegments": true,
                 "wallCollisionDilateCells": 0,
                 "wallCollisionMargin": 1.0,
