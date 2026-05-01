@@ -58,6 +58,23 @@ our::Texture2D* our::texture_utils::loadImage(const std::string& filename, bool 
     return texture;
 }
 
+our::Texture2D* our::texture_utils::loadImageHDR(const std::string& filename) {
+    glm::ivec2 size;
+    int channels;
+    stbi_set_flip_vertically_on_load(true);
+    float* pixels = stbi_loadf(filename.c_str(), &size.x, &size.y, &channels, 3);
+    if(pixels == nullptr){
+        std::cerr << "Failed to load HDR image: " << filename << std::endl;
+        return nullptr;
+    }
+    our::Texture2D* texture = new our::Texture2D();
+    glBindTexture(GL_TEXTURE_2D, texture->getOpenGLName());
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB16F, size.x, size.y, 0, GL_RGB, GL_FLOAT, pixels);
+    
+    stbi_image_free(pixels);
+    return texture;
+}
+
 our::Texture2D* our::texture_utils::loadImageFromMemory(const unsigned char* data, int length, bool generate_mipmap) {
     glm::ivec2 size;
     int channels;
