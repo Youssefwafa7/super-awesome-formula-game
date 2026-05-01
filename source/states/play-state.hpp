@@ -969,13 +969,6 @@ class Playstate: public our::State {
         raceFinished = false;
         finishers.clear();
         currentStandings.clear();
-        currentLap = 1;
-        currentLapTime = 0.0f;
-        totalRaceTime = 0.0f;
-        totalPenaltyTime = 0.0f;
-        nextCheckpointIndex = 0;
-        crossedStartLine = false;
-        lastHitIdx = -1;
         p1Stats = PlayerStats();
         p2Stats = PlayerStats();
         loadCheckpoints();
@@ -1375,7 +1368,10 @@ class Playstate: public our::State {
                     else if (i == 1) color = ImVec4(0.75f, 0.75f, 0.75f, 1.0f);
                     else if (i == 2) color = ImVec4(0.8f, 0.5f, 0.2f, 1.0f);
                     
-                    std::string label = (currentStandings[i] == "player") ? "YOU (Player)" : "AI (" + currentStandings[i] + ")";
+                    std::string label = currentStandings[i];
+                    if (label == "player") label = "Farag";
+                    else if (label == "ai_car_0") label = "Hassan";
+                    else if (label == "ai_car_1") label = "wafa";
                     ImGui::TextColored(color, "%d. %s", (int)i + 1, label.c_str());
                 }
                 ImGui::SetWindowFontScale(1.0f);
@@ -1386,68 +1382,6 @@ class Playstate: public our::State {
         // Race HUD
         {
             const ImVec2 display = ImGui::GetIO().DisplaySize;
-            ImGui::SetNextWindowPos(ImVec2(display.x * 0.5f, 30.0f), ImGuiCond_Always, ImVec2(0.5f, 0.0f));
-            ImGui::SetNextWindowBgAlpha(0.35f);
-            
-            ImGuiWindowFlags raceFlags = 0;
-            raceFlags |= ImGuiWindowFlags_NoDecoration;
-            raceFlags |= ImGuiWindowFlags_AlwaysAutoResize;
-            raceFlags |= ImGuiWindowFlags_NoSavedSettings;
-            raceFlags |= ImGuiWindowFlags_NoFocusOnAppearing;
-            raceFlags |= ImGuiWindowFlags_NoNav;
-
-            if(ImGui::Begin("Race HUD", nullptr, raceFlags)){
-                if (!crossedStartLine) {
-                    ImGui::SetWindowFontScale(2.0f);
-                    ImGui::TextColored(ImVec4(1.0f, 1.0f, 0.2f, 1.0f), "CROSS THE START LINE!");
-                    ImGui::SetWindowFontScale(1.0f);
-                } else {
-                    // --- TOP ROW: LAP & POSITION ---
-                    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.7f, 0.7f, 0.7f, 1.0f));
-                    ImGui::SetWindowFontScale(1.0f);
-                    ImGui::Text("LAP");
-                    ImGui::SameLine(180.0f);
-                    ImGui::Text("POSITION");
-                    ImGui::PopStyleColor();
-
-                    ImGui::SetWindowFontScale(3.5f);
-                    ImGui::TextColored(ImVec4(1.0f, 1.0f, 1.0f, 1.0f), "%d", std::min(currentLap, totalLaps));
-                    ImGui::SameLine();
-                    ImGui::SetWindowFontScale(1.5f);
-                    ImGui::TextColored(ImVec4(0.5f, 0.5f, 0.5f, 1.0f), "/ %d", totalLaps);
-                    
-                    ImGui::SameLine(180.0f);
-                    
-                    ImGui::SetWindowFontScale(3.5f);
-                    ImVec4 posColor = ImVec4(1.0f, 1.0f, 1.0f, 1.0f); // Default white
-                    if (playerPosition == 1) posColor = ImVec4(1.0f, 0.84f, 0.0f, 1.0f); // Gold
-                    else if (playerPosition == 2) posColor = ImVec4(0.75f, 0.75f, 0.75f, 1.0f); // Silver
-                    else if (playerPosition == 3) posColor = ImVec4(0.8f, 0.5f, 0.2f, 1.0f); // Bronze
-                    
-                    ImGui::TextColored(posColor, "%d", playerPosition);
-                    ImGui::SameLine();
-                    ImGui::SetWindowFontScale(1.5f);
-                    ImGui::TextColored(ImVec4(0.5f, 0.5f, 0.5f, 1.0f), "/ %d", (int)aiRacers.size() + 1);
-                    
-                    ImGui::SetWindowFontScale(1.0f);
-                    ImGui::Separator();
-                    
-                    // --- BOTTOM ROW: TIMES & PENALTIES ---
-                    ImGui::SetWindowFontScale(1.5f);
-                    ImGui::TextColored(ImVec4(0.8f, 0.8f, 0.8f, 1.0f), "TIME:");
-                    ImGui::SameLine();
-                    ImGui::TextColored(ImVec4(1.0f, 1.0f, 1.0f, 1.0f), "%.2f", currentLapTime);
-
-                    if(bestLapTime > 0) {
-                        ImGui::TextColored(ImVec4(0.8f, 0.8f, 0.8f, 1.0f), "BEST:");
-                        ImGui::SameLine();
-                        ImGui::TextColored(ImVec4(0.3f, 1.0f, 0.3f, 1.0f), "%.2f", bestLapTime);
-                    }
-                    
-                    if(totalPenaltyTime > 0) {
-                        ImGui::TextColored(ImVec4(1.0f, 0.2f, 0.2f, 1.0f), "PENALTY:");
-                        ImGui::SameLine();
-                        ImGui::TextColored(ImVec4(1.0f, 0.2f, 0.2f, 1.0f), "+%.1fs", totalPenaltyTime);
             bool isMulti = getApp()->getIsMultiplayer();
 
             auto drawRaceHUD = [&](const char* title, const PlayerStats& stats, ImVec2 pos, int totalAi) {
@@ -1519,10 +1453,25 @@ class Playstate: public our::State {
                 ImGui::End();
             };
 
-                if(raceFinished) {
-                    ImGui::Separator();
+            int aiCount = isMulti ? 0 : (int)aiRacers.size();
+            if (isMulti) {
+                // Top screen is Player 2
+                drawRaceHUD("Player 2", p2Stats, ImVec2(display.x * 0.5f, 10.0f), aiCount);
+                // Bottom screen is Player 1
+                drawRaceHUD("Player 1", p1Stats, ImVec2(display.x * 0.5f, display.y * 0.5f + 10.0f), aiCount);
+            } else {
+                drawRaceHUD("Player 1", p1Stats, ImVec2(display.x * 0.5f, 30.0f), aiCount);
+            }
+
+            if(raceFinished && !isMulti) {
+                ImGui::SetNextWindowPos(ImVec2(display.x * 0.5f, display.y * 0.5f), ImGuiCond_Always, ImVec2(0.5f, 0.5f));
+                ImGui::SetNextWindowBgAlpha(0.85f);
+                ImGuiWindowFlags finalFlags = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav;
+                
+                if(ImGui::Begin("Final Results", nullptr, finalFlags)) {
                     ImGui::SetWindowFontScale(2.0f);
                     ImGui::TextColored(ImVec4(0.2f, 1.0f, 0.2f, 1.0f), "RACE FINISHED!");
+                    ImGui::Separator();
                     
                     ImGui::SetWindowFontScale(1.2f);
                     ImGui::TextColored(ImVec4(1.0f, 1.0f, 1.0f, 1.0f), "FINAL RESULTS:");
@@ -1533,19 +1482,15 @@ class Playstate: public our::State {
                         else if (i == 1) color = ImVec4(0.75f, 0.75f, 0.75f, 1.0f);
                         else if (i == 2) color = ImVec4(0.8f, 0.5f, 0.2f, 1.0f);
                         
-                        std::string label = (currentStandings[i] == "player") ? "YOU (Player)" : "AI (" + currentStandings[i] + ")";
+                        std::string label = currentStandings[i];
+                        if (label == "player") label = "Farag";
+                        else if (label == "ai_car_0") label = "Hassan";
+                        else if (label == "ai_car_1") label = "wafa";
                         ImGui::TextColored(color, "%d. %s", (int)i + 1, label.c_str());
                     }
                     ImGui::SetWindowFontScale(1.0f);
                 }
-            int aiCount = isMulti ? 0 : (int)aiRacers.size();
-            if (isMulti) {
-                // Top screen is Player 2
-                drawRaceHUD("Player 2", p2Stats, ImVec2(display.x * 0.5f, 10.0f), aiCount);
-                // Bottom screen is Player 1
-                drawRaceHUD("Player 1", p1Stats, ImVec2(display.x * 0.5f, display.y * 0.5f + 10.0f), aiCount);
-            } else {
-                drawRaceHUD("Player 1", p1Stats, ImVec2(display.x * 0.5f, 30.0f), aiCount);
+                ImGui::End();
             }
         }
 
