@@ -4,6 +4,8 @@
 #include "../components/chase-camera.hpp"
 #include "../components/car-controller.hpp"
 
+#include "../application.hpp"
+
 #include <GLFW/glfw3.h>
 #include <glm/gtx/euler_angles.hpp>
 
@@ -13,6 +15,7 @@
 namespace our {
 
     class ChaseCameraSystem {
+        Application* app = nullptr;
         static Entity* findTarget(World* world, const std::string& targetName){
             if(!targetName.empty()){
                 for(auto entity : world->getEntities()){
@@ -77,6 +80,10 @@ namespace our {
         }
 
     public:
+        void enter(Application* app){
+            this->app = app;
+        }
+
         void update(World* world, float deltaTime){
             for(auto entity : world->getEntities()){
                 auto* chase = entity->getComponent<ChaseCameraComponent>();
@@ -85,14 +92,14 @@ namespace our {
                 Entity* targetEntity = findTarget(world, chase->targetName);
                 if(targetEntity == nullptr) continue;
 
-                // Only apply look-around for the player car (not AI).
-                auto* targetCar = targetEntity->getComponent<CarControllerComponent>();
-                const bool isPlayer = (targetCar != nullptr && !targetCar->isAI);
+                // Only apply look-around for the player car.
+                const bool isPlayer = (targetEntity->name == "player");
 
                 // ── Compute look-around yaw offset ──
                 float targetLookYaw = 0.0f;
                 if(isPlayer){
-                    targetLookYaw = computeLookAroundTarget();
+                    const bool lookBehind = (app && app->getKeyboard().isPressed(GLFW_KEY_C));
+                    targetLookYaw = lookBehind ? glm::pi<float>() : computeLookAroundTarget();
                 }
 
                 // Smooth toward target look-around yaw.
