@@ -30,6 +30,9 @@ namespace our {
         glm::vec3 lookAtOffset = glm::vec3(0.0f, 0.8f, 0.0f);
         float lookAtHeight = 0.8f;
 
+        float lookAroundYaw = 0.0f;          // current smoothed yaw orbit offset (radians)
+        float lookAroundSmoothing = 12.0f;   // exponential lerp speed (higher = snappier)
+
         void deserialize(const nlohmann::json& data) override;
     };
 
