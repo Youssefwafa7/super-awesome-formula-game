@@ -48,7 +48,7 @@ namespace our {
             if(checkpoints.empty()) return;
 
             const int numCP = (int)checkpoints.size();
-            int cpIdx = car->aiCheckpointIndex % numCP;
+            int cpIdx = car->nextCheckpointIndex % numCP;
 
             // ── 1. Target point ──
             // Use a tight lookahead to hug the racing line closely.
@@ -77,7 +77,9 @@ namespace our {
             const float distToTarget = glm::length(toTarget2D);
 
             if(distToTarget < 0.01f){
-                car->aiCheckpointIndex = (cpIdx + 1) % numCP;
+                if (cpIdx + 1 >= numCP) car->currentLap++;
+                car->nextCheckpointIndex = (cpIdx + 1) % numCP;
+                car->crossedStartLine = true;
                 outThrottle = 0.3f;
                 return;
             }
@@ -198,7 +200,9 @@ namespace our {
             // With dense checkpoints (~9 units apart), use a small radius.
             const float cpRadius = 4.0f + car->aiRandomSeed * 2.0f;
             if(distToTarget < cpRadius){
-                car->aiCheckpointIndex = (cpIdx + 1) % numCP;
+                if (cpIdx + 1 >= numCP) car->currentLap++;
+                car->nextCheckpointIndex = (cpIdx + 1) % numCP;
+                car->crossedStartLine = true;
             }
 
             // Also advance if we've passed the checkpoint (closer to next than current).
@@ -212,7 +216,9 @@ namespace our {
                     glm::vec2(cpNext.x, cpNext.z)
                 );
                 if(distToNext < distToCurrent && distToCurrent > 3.0f){
-                    car->aiCheckpointIndex = (cpIdx + 1) % numCP;
+                    if (cpIdx + 1 >= numCP) car->currentLap++;
+                    car->nextCheckpointIndex = (cpIdx + 1) % numCP;
+                    car->crossedStartLine = true;
                 }
             }
         }

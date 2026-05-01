@@ -57,9 +57,13 @@ namespace our {
         // Smoothed surface orientation (runtime, not serialized)
         glm::quat _surfaceOrientation = glm::quat(1.0f, 0.0f, 0.0f, 0.0f);
 
-        // ── AI driver state ──
+        // ── Race driver state ──
         bool isAI = false;                    // true → driven by AI, not keyboard
-        int aiCheckpointIndex = 0;            // next checkpoint to target
+        int nextCheckpointIndex = 0;          // next checkpoint to target
+        int currentLap = 1;                   // current race lap
+        bool crossedStartLine = false;        // true if the car has crossed the start line
+        int lastHitIdx = -1;                  // last checkpoint index hit
+
         float aiLateralOffset = 0.0f;         // slight offset from racing line center (avoids stacking)
         float aiSmoothedSteer = 0.0f;         // exponentially smoothed steering value
         float aiRandomSeed = 0.0f;            // unique per-car randomness seed (0..1)

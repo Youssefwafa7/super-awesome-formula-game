@@ -96,7 +96,7 @@ class Playstate: public our::State {
     std::string lastCheckpointStatus;
 
     // Number of AI cars to spawn
-    static constexpr int kNumAICars = 3;
+    static constexpr int kNumAICars = 2;
 
     // ── Auto-recording system ──
     bool isRecording = false;
@@ -185,8 +185,8 @@ class Playstate: public our::State {
         const glm::vec3 fwd(std::sin(spawnYaw), 0.0f, std::cos(spawnYaw));
         const glm::vec3 right(fwd.z, 0.0f, -fwd.x);
 
-        const float rowSpacing = 5.0f;
-        const float colSpacing = 3.0f;
+        const float rowSpacing = 15.0f;
+        const float colSpacing = 8.0f;
 
         // Different tint multipliers for AI cars.
         const glm::vec4 aiTints[] = {
@@ -238,7 +238,10 @@ class Playstate: public our::State {
 
                 // AI-specific state
                 aiCarCtrl->isAI = true;
-                aiCarCtrl->aiCheckpointIndex = 0;
+                aiCarCtrl->nextCheckpointIndex = 0;
+                aiCarCtrl->currentLap = 1;
+                aiCarCtrl->crossedStartLine = false;
+                aiCarCtrl->lastHitIdx = -1;
                 aiCarCtrl->aiLateralOffset = (i % 2 == 0 ? 1.0f : -1.0f) * (1.0f + (float)i * 0.5f);
                 aiCarCtrl->aiRandomSeed = (float)(i + 1) / (float)(kNumAICars + 1);
 
@@ -268,104 +271,114 @@ class Playstate: public our::State {
     }
 
     void updateRaceLogic(float deltaTime) {
-        if (!isRaceStarted || raceFinished || checkpoints.size() < 2) return;
+        if (!isRaceStarted || raceFinished || checkpoints.empty()) return;
 
-        try {
-            auto* player = findEntityByName(world, "player");
-            auto* track = findTrack(world);
-            if (!player || !track) return;
+        struct Ranker {
+            our::Entity* entity;
+            float progress;
+        };
+        std::vector<Ranker> carRanks;
 
-            glm::vec3 playerPos = player->localTransform.position;
+        for (auto* entity : world.getEntities()) {
+            auto* car = entity->getComponent<our::CarControllerComponent>();
+            if (!car) continue;
 
-            // Wait for player to cross the start line (checkpoint 0) before starting logic
-            if (!crossedStartLine) {
-                if (!checkpoints.empty()) {
-                    float dist = glm::distance(playerPos, checkpoints[0].pos);
+            glm::vec3 carPos = entity->localTransform.position;
+
+            // Player-specific logic (checkpoint detection)
+            // AI checkpoint detection is handled in CarControllerSystem::computeAIInput
+            if (!car->isAI) {
+                if (!car->crossedStartLine) {
+                    float dist = glm::distance(carPos, checkpoints[0].pos);
                     if (dist < checkpoints[0].radius) {
-                        crossedStartLine = true;
-                        lastHitIdx = 0;
-                        totalRaceTime = 0.0f;
-                        currentLapTime = 0.0f;
-                        nextCheckpointIndex = 1 % checkpoints.size();
-                    }
-                }
-                return;
-            }
-
-            totalRaceTime += (float)deltaTime;
-            currentLapTime += (float)deltaTime;
-
-            // 1. Off-track penalty (Disabled for now)
-            /*
-            float y;
-            our::TrackHeightfieldComponent::SurfaceType surface;
-            if (track->sampleSurface(playerPos.x, playerPos.z, y, surface)) {
-                if (surface == our::TrackHeightfieldComponent::SurfaceType::Grass) {
-                    totalPenaltyTime += (float)deltaTime * 1.0f; 
-                }
-            }
-            */
-            // 2. Checkpoint tracking
-            if (!checkpoints.empty()) {
-                int foundIdx = -1;
-                // Search forward up to half the track.
-                // This prevents hitting the 'end' checkpoint while standing at the 'start' 
-                // if they are recorded at the same physical location.
-                int searchRange = std::max(1, (int)checkpoints.size() / 2);
-                for (int i = 0; i < searchRange; ++i) {
-                    int idx = (nextCheckpointIndex + i) % checkpoints.size();
-                    float dist = glm::distance(playerPos, checkpoints[idx].pos);
-                    if (dist < checkpoints[idx].radius) {
-                        foundIdx = idx;
-                        break;
-                    }
-                }
-
-                if (foundIdx != -1 && foundIdx != lastHitIdx) {
-                    // Calculate how many were skipped
-                    int numSkipped = 0;
-                    if (foundIdx >= nextCheckpointIndex) {
-                        numSkipped = foundIdx - nextCheckpointIndex;
-                    } else {
-                        // Skipping across the finish line
-                        numSkipped = ((int)checkpoints.size() - nextCheckpointIndex) + foundIdx;
-                    }
-
-                    if (numSkipped > 0) {
-                        totalPenaltyTime += (float)numSkipped * 20.0f; 
-                    }
-
-                    // Check for lap completion
-                    // A lap is completed if we wrap around the finish line.
-                    if (foundIdx < nextCheckpointIndex || (foundIdx == 0 && nextCheckpointIndex == 0)) {
-                        if (bestLapTime == 0.0f || currentLapTime < bestLapTime) bestLapTime = currentLapTime;
-                        if (currentLap >= totalLaps) {
-                            raceFinished = true;
-                        } else {
-                            currentLap++;
+                        car->crossedStartLine = true;
+                        car->lastHitIdx = 0;
+                        car->nextCheckpointIndex = 1 % checkpoints.size();
+                        if (entity->name == "player") {
+                            totalRaceTime = 0.0f;
                             currentLapTime = 0.0f;
                         }
                     }
-                    lastHitIdx = foundIdx;
-                    nextCheckpointIndex = (foundIdx + 1) % checkpoints.size();
+                } else {
+                    int searchRange = std::max(1, (int)checkpoints.size() / 2);
+                    int foundIdx = -1;
+                    for (int i = 0; i < searchRange; ++i) {
+                        int idx = (car->nextCheckpointIndex + i) % checkpoints.size();
+                        float dist = glm::distance(carPos, checkpoints[idx].pos);
+                        if (dist < checkpoints[idx].radius) {
+                            foundIdx = idx;
+                            break;
+                        }
+                    }
+
+                    if (foundIdx != -1 && foundIdx != car->lastHitIdx) {
+                        // Calculate how many were skipped
+                        int numSkipped = 0;
+                        if (foundIdx >= car->nextCheckpointIndex) {
+                            numSkipped = foundIdx - car->nextCheckpointIndex;
+                        } else {
+                            // Skipping across the finish line (wrap around)
+                            numSkipped = ((int)checkpoints.size() - car->nextCheckpointIndex) + foundIdx;
+                        }
+
+                        if (numSkipped > 0 && !car->isAI) {
+                            totalPenaltyTime += (float)numSkipped * 20.0f; 
+                        }
+
+                        if (foundIdx < car->nextCheckpointIndex || (foundIdx == 0 && car->nextCheckpointIndex == 0)) {
+                            car->currentLap++;
+                            if (entity->name == "player") {
+                                if (bestLapTime == 0.0f || currentLapTime < bestLapTime) bestLapTime = currentLapTime;
+                                if (car->currentLap > totalLaps) {
+                                    raceFinished = true;
+                                } else {
+                                    currentLapTime = 0.0f;
+                                }
+                            }
+                        }
+                        car->lastHitIdx = foundIdx;
+                        car->nextCheckpointIndex = (foundIdx + 1) % checkpoints.size();
+                    }
                 }
             }
 
-            // 3. AI Position Simulation
-            float progress = 0.0f;
-            if (!checkpoints.empty()) progress = (float)nextCheckpointIndex / (float)checkpoints.size();
-            for (auto& ai : aiRacers) {
-                ai.totalTime = ai.lapTime * (float)(currentLap - 1 + progress);
+            // Calculate progress for ranking
+            float progress = (float)car->currentLap * 10000.0f;
+            progress += (float)car->nextCheckpointIndex * 100.0f;
+
+            // Finer resolution: distance to next checkpoint
+            int targetIdx = car->nextCheckpointIndex;
+            int prevIdx = (targetIdx + (int)checkpoints.size() - 1) % (int)checkpoints.size();
+            float distToNext = glm::distance(carPos, checkpoints[targetIdx].pos);
+            float segLen = glm::distance(checkpoints[prevIdx].pos, checkpoints[targetIdx].pos);
+            if (segLen > 0.1f) {
+                progress += (1.0f - std::clamp(distToNext / segLen, 0.0f, 1.0f)) * 100.0f;
             }
 
-            float playerEffectiveTime = totalRaceTime + totalPenaltyTime;
-            int rank = 1;
-            for (const auto& ai : aiRacers) {
-                if (ai.totalTime < playerEffectiveTime) rank++;
+            carRanks.push_back({entity, progress});
+        }
+
+        // Sort cars by progress
+        std::sort(carRanks.begin(), carRanks.end(), [](const Ranker& a, const Ranker& b) {
+            return a.progress > b.progress;
+        });
+
+        // Find player rank and sync state
+        for (int i = 0; i < (int)carRanks.size(); ++i) {
+            if (carRanks[i].entity->name == "player") {
+                playerPosition = i + 1;
+                auto* pCar = carRanks[i].entity->getComponent<our::CarControllerComponent>();
+                currentLap = pCar->currentLap;
+                crossedStartLine = pCar->crossedStartLine;
+                nextCheckpointIndex = pCar->nextCheckpointIndex;
+                lastHitIdx = pCar->lastHitIdx;
+                break;
             }
-            playerPosition = rank;
-        } catch (...) {
-            // Silently ignore logic errors to prevent black screen (rendering will still happen)
+        }
+
+        if (isRaceStarted && !raceFinished) {
+            totalRaceTime += deltaTime;
+            currentLapTime += deltaTime;
         }
     }
 
@@ -770,10 +783,21 @@ class Playstate: public our::State {
         currentLapTime = 0.0f;
         totalRaceTime = 0.0f;
         totalPenaltyTime = 0.0f;
+        nextCheckpointIndex = 0;
         crossedStartLine = false;
         lastHitIdx = -1;
         loadCheckpoints();
         initAiRacers();
+        
+        // Reset player component race state
+        if(auto* playerEnt = findEntityByName(world, "player")){
+            if(auto* pCar = playerEnt->getComponent<our::CarControllerComponent>()){
+                pCar->currentLap = 1;
+                pCar->nextCheckpointIndex = 0;
+                pCar->crossedStartLine = false;
+                pCar->lastHitIdx = -1;
+            }
+        }
 
         // Spawn AI-controlled cars (requires checkpoints to be loaded first).
         spawnAICars();
@@ -908,8 +932,11 @@ class Playstate: public our::State {
                 if(freeRoaming) ImGui::TextColored(ImVec4(1.0f, 1.0f, 0.2f, 1.0f), "[FREE ROAM]");
                 ImGui::Text("pos  x %.2f  y %.2f  z %.2f", p.x, p.y, p.z);
                 ImGui::Text("yaw  %.1f deg", yawDeg);
+                ImGui::Separator();
+                ImGui::Text("FPS: %.1f", ImGui::GetIO().Framerate);
             } else {
                 ImGui::TextUnformatted("target not found");
+                ImGui::Text("FPS: %.1f", ImGui::GetIO().Framerate);
             }
 
             ImGui::Dummy(ImVec2(0.0f, 4.0f));
@@ -1096,11 +1123,16 @@ class Playstate: public our::State {
             if(ImGui::Begin("Race HUD", nullptr, raceFlags)){
                 ImGui::SetWindowFontScale(1.5f);
                 if (!crossedStartLine) {
+                    ImGui::SetWindowFontScale(2.0f);
                     ImGui::TextColored(ImVec4(1.0f, 1.0f, 0.2f, 1.0f), "CROSS THE START LINE!");
                 } else {
-                    ImGui::Text("Lap: %d / %d", currentLap, totalLaps);
-                    ImGui::SameLine(200);
-                    ImGui::Text("Pos: %d / %d", playerPosition, (int)aiRacers.size() + 1);
+                    ImGui::SetWindowFontScale(3.0f); // Even bigger
+                    
+                    ImGui::Text("LAP: %d / %d", std::min(currentLap, totalLaps), totalLaps);
+                    ImGui::SameLine();
+                    ImGui::Dummy(ImVec2(150.0f, 0.0f)); // Fixed large gap
+                    ImGui::SameLine();
+                    ImGui::Text("POS: %d / %d", playerPosition, (int)aiRacers.size() + 1);
                 }
                 
                 ImGui::Separator();
