@@ -139,6 +139,11 @@ namespace our {
         [[nodiscard]] const std::string& getSelectedCarPreset() const { return selectedCarPreset; }
         [[nodiscard]] const std::string& getSelectedTrackPreset() const { return selectedTrackPreset; }
 
+        // Multiplayer mode selection
+        bool isMultiplayer = false;
+        void setIsMultiplayer(bool value){ isMultiplayer = value; }
+        [[nodiscard]] bool getIsMultiplayer() const { return isMultiplayer; }
+
         // Get the size of the frame buffer of the window in pixels.
         glm::ivec2 getFrameBufferSize() {
             glm::ivec2 size;
