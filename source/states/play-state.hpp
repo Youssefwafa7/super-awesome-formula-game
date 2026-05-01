@@ -50,6 +50,7 @@ class Playstate: public our::State {
     };
 
     bool freeRoaming = false;
+    bool isPaused = false;
 
     // ── Audio ──
     ma_engine audioEngine;
@@ -800,6 +801,7 @@ class Playstate: public our::State {
         countdownTimer = 3.0f;
         isRaceStarted = false;
         introAudioDone = false;
+        isPaused = false;
 
         raceFinished = false;
         currentLap = 1;
@@ -827,6 +829,16 @@ class Playstate: public our::State {
     }
 
     void onDraw(double deltaTime) override {
+        auto& keyboard = getApp()->getKeyboard();
+        if(keyboard.justPressed(GLFW_KEY_ESCAPE)){
+            isPaused = !isPaused;
+        }
+
+        if (isPaused) {
+            renderer.render(&world);
+            return;
+        }
+
         // Update countdown timer
         bool isAudioPlaying = false;
         if (isMusicLoaded) {
@@ -850,8 +862,6 @@ class Playstate: public our::State {
 
         // Here, we just run a bunch of systems to control the world logic
         movementSystem.update(&world, (float)deltaTime);
-        
-        auto& keyboard = getApp()->getKeyboard();
         if(keyboard.justPressed(GLFW_KEY_F)){
             freeRoaming = !freeRoaming;
             auto* camera = findEntityByName(world, "main_camera");
@@ -926,14 +936,53 @@ class Playstate: public our::State {
         cameraController.update(&world, (float)deltaTime);
         // And finally we use the renderer system to draw the scene
         renderer.render(&world);
-
-        if(keyboard.justPressed(GLFW_KEY_ESCAPE)){
-            // If the escape  key is pressed in this frame, go to the play state
-            getApp()->changeState("menu");
-        }
     }
 
     void onImmediateGui() override {
+        if (isPaused) {
+            const ImVec2 display = ImGui::GetIO().DisplaySize;
+            ImGui::SetNextWindowPos(ImVec2(display.x * 0.5f, display.y * 0.5f), ImGuiCond_Always, ImVec2(0.5f, 0.5f));
+            ImGui::SetNextWindowSize(ImVec2(300, 250));
+            ImGuiWindowFlags flags = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoSavedSettings;
+            
+            ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.1f, 0.1f, 0.1f, 0.9f));
+            if (ImGui::Begin("Pause Menu", nullptr, flags)) {
+                ImGui::SetWindowFontScale(2.0f);
+                
+                // Center text
+                const char* title = "PAUSED";
+                float textWidth = ImGui::CalcTextSize(title).x;
+                ImGui::SetCursorPosX((ImGui::GetWindowWidth() - textWidth) * 0.5f);
+                ImGui::TextColored(ImVec4(1.0f, 0.2f, 0.2f, 1.0f), "%s", title);
+                ImGui::SetWindowFontScale(1.0f);
+
+                ImGui::Dummy(ImVec2(0.0f, 20.0f));
+
+                float btnWidth = 200.0f;
+                float btnHeight = 40.0f;
+                float btnX = (ImGui::GetWindowWidth() - btnWidth) * 0.5f;
+
+                ImGui::SetCursorPosX(btnX);
+                if (ImGui::Button("Resume", ImVec2(btnWidth, btnHeight))) {
+                    isPaused = false;
+                }
+
+                ImGui::Dummy(ImVec2(0.0f, 10.0f));
+                ImGui::SetCursorPosX(btnX);
+                if (ImGui::Button("Restart", ImVec2(btnWidth, btnHeight))) {
+                    getApp()->changeState("loading");
+                }
+
+                ImGui::Dummy(ImVec2(0.0f, 10.0f));
+                ImGui::SetCursorPosX(btnX);
+                if (ImGui::Button("Quit to Menu", ImVec2(btnWidth, btnHeight))) {
+                    getApp()->changeState("menu");
+                }
+            }
+            ImGui::End();
+            ImGui::PopStyleColor();
+        }
+
         const CollisionDebugStats debugStats = drawCollisionDebugOverlay();
 
         // Top-left coordinate system HUD.
