@@ -54,11 +54,14 @@ class Playstate: public our::State {
     ma_engine audioEngine;
     ma_sound playMusic;
     ma_sound countdownSound;
+    ma_sound engineLoopSound;
     bool isAudioInitialized = false;
     bool isMusicLoaded = false;
     bool isCountdownSoundLoaded = false;
+    bool isEngineLoopLoaded = false;
     float introAudioDuration = 2.5f;
     bool introAudioDone = false;
+    float currentEnginePitch = 1.0f;
 
     // ── Countdown Timer ──
     float countdownTimer = 3.0f; 
@@ -577,6 +580,51 @@ class Playstate: public our::State {
         return out;
     }
 
+    void updateCarAudio(float deltaTime) {
+        if (!isAudioInitialized || !isEngineLoopLoaded) return;
+
+        auto* player = findEntityByName(world, "player");
+        if (!player) return;
+
+        auto* car = player->getComponent<our::CarControllerComponent>();
+        if (!car) return;
+
+        auto& keyboard = getApp()->getKeyboard();
+        bool throttlePressed = keyboard.isPressed(GLFW_KEY_W);
+        float speed = std::abs(car->speed);
+
+        // --- Configuration (Discrete Pitch Ranges) ---
+        // You can tweak these values to change the gear feeling.
+        const int numRanges = 5;
+        const float rangeWidth = car->maxSpeed / (float)numRanges;
+        const float pitches[numRanges + 1] = { 0.7f, 0.85f, 1.0f, 1.15f, 1.3f, 1.5f }; 
+        
+        // Pitch transition speeds
+        const float pitchUpSpeed = 1.5f;   // Smoothly rev up
+        const float pitchDownSpeed = 4.0f; // Drop RPMs quickly when letting off gas
+
+        // 1. Determine base target pitch based on speed range
+        float targetPitch = pitches[0]; // Idle default
+        if (speed > 0.1f) {
+            int rangeIndex = (int)(speed / rangeWidth) + 1;
+            if (rangeIndex > numRanges) rangeIndex = numRanges;
+            targetPitch = pitches[rangeIndex];
+        }
+
+        // 2. Adjust target if throttle is released (coasting)
+        // "if i remove the throttle that the car still emits sound just pitch it back down quicker"
+        if (!throttlePressed && speed > 0.1f) {
+            // Drop the target pitch slightly to simulate low-load engine RPMs
+            targetPitch = pitches[0] + (targetPitch - pitches[0]) * 0.4f;
+        }
+
+        // 3. Smoothly transition to the target pitch
+        float lerpFactor = (targetPitch > currentEnginePitch) ? pitchUpSpeed : pitchDownSpeed;
+        currentEnginePitch = glm::mix(currentEnginePitch, targetPitch, std::min(1.0f, lerpFactor * deltaTime));
+
+        ma_sound_set_pitch(&engineLoopSound, currentEnginePitch);
+    }
+
     void onInitialize() override {
         // First of all, we get the scene configuration from the app config
         auto& config = getApp()->getConfig()["scene"];
@@ -616,6 +664,11 @@ class Playstate: public our::State {
             if (ma_sound_init_from_file(&audioEngine, "assets/audio/Mario Kart Race Countdown - Sound Effect.mp3", 0, NULL, NULL, &countdownSound) == MA_SUCCESS) {
                 isCountdownSoundLoaded = true;
                 ma_sound_set_looping(&countdownSound, MA_FALSE);
+            }
+            if (ma_sound_init_from_file(&audioEngine, "assets/audio/engineloop.wav", 0, NULL, NULL, &engineLoopSound) == MA_SUCCESS) {
+                isEngineLoopLoaded = true;
+                ma_sound_set_looping(&engineLoopSound, MA_TRUE);
+                ma_sound_start(&engineLoopSound);
             }
         }
         
@@ -683,6 +736,8 @@ class Playstate: public our::State {
         if(!freeRoaming){
             carControllerSystem.update(&world, (float)deltaTime, isRaceStarted);
         }
+
+        updateCarAudio((float)deltaTime);
 
         updateRaceLogic((float)deltaTime);
         
@@ -938,6 +993,10 @@ class Playstate: public our::State {
         if (isCountdownSoundLoaded) {
             ma_sound_uninit(&countdownSound);
             isCountdownSoundLoaded = false;
+        }
+        if (isEngineLoopLoaded) {
+            ma_sound_uninit(&engineLoopSound);
+            isEngineLoopLoaded = false;
         }
         if (isAudioInitialized) {
             ma_engine_uninit(&audioEngine);
