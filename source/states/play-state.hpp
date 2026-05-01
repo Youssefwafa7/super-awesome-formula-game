@@ -339,7 +339,7 @@ class Playstate: public our::State {
                         }
 
                         if (numSkipped > 0 && !car->isAI) {
-                            totalPenaltyTime += (float)numSkipped * 20.0f; 
+                            totalPenaltyTime += (float)numSkipped * 1.0f; 
                         }
 
                         if (foundIdx < car->nextCheckpointIndex || (foundIdx == 0 && car->nextCheckpointIndex == 0)) {
@@ -781,6 +781,7 @@ class Playstate: public our::State {
         // We initialize the camera controller system since it needs a pointer to the app
         cameraController.enter(getApp());
         carControllerSystem.enter(getApp());
+        chaseCameraSystem.enter(getApp());
         // Then we initialize the renderer
         auto size = getApp()->getFrameBufferSize();
         renderer.initialize(size, config["renderer"]);
