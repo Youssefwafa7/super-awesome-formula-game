@@ -597,7 +597,10 @@ class Playstate: public our::State {
         // You can tweak these values to change the gear feeling.
         const int numRanges = 5;
         const float rangeWidth = car->maxSpeed / (float)numRanges;
-        const float pitches[numRanges + 1] = { 0.7f, 0.85f, 1.0f, 1.15f, 1.3f, 1.5f }; 
+        // { Idle, Gear 1, Gear 2, Gear 3, Gear 4, Gear 5 }
+        // const float pitches[numRanges + 1] = { 0.7f, 0.85f, 1.0f, 1.15f, 1.3f, 1.5f }; 
+        // const float pitches[numRanges + 1] = { 1.0f, 1.15f, 1.3f, 1.5f, 1.7f, 1.9f };
+        const float pitches[numRanges + 1] = { 1.2f, 1.4f, 1.6f, 1.8f, 2.0f, 2.2f };
         
         // Pitch transition speeds
         const float pitchUpSpeed = 1.5f;   // Smoothly rev up
