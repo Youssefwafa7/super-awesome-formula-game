@@ -698,6 +698,8 @@ namespace our {
                                     if (std::abs(leftX) < 0.1f) leftX = 0.0f;
 
                                     throttle += (rt - lt);
+                                    if (state.buttons[GLFW_GAMEPAD_BUTTON_RIGHT_BUMPER]) throttle += 1.0f;
+                                    if (state.buttons[GLFW_GAMEPAD_BUTTON_LEFT_BUMPER])  throttle -= 1.0f;
                                     steer += -leftX; // Left is positive, Right is negative in this engine
 
                                     throttle = std::clamp(throttle, -1.0f, 1.0f);

@@ -51,6 +51,7 @@ class Playstate: public our::State {
 
     bool freeRoaming = false;
     bool isPaused = false;
+    bool lastStartDown = false;
 
     // ── Audio ──
     ma_engine audioEngine;
@@ -962,7 +963,18 @@ class Playstate: public our::State {
 
     void onDraw(double deltaTime) override {
         auto& keyboard = getApp()->getKeyboard();
-        if(keyboard.justPressed(GLFW_KEY_ESCAPE)){
+        bool startPressed = false;
+        GLFWgamepadstate gamepadState;
+        if (glfwGetGamepadState(GLFW_JOYSTICK_1, &gamepadState)) {
+            if (gamepadState.buttons[GLFW_GAMEPAD_BUTTON_START]) {
+                if (!lastStartDown) startPressed = true;
+                lastStartDown = true;
+            } else {
+                lastStartDown = false;
+            }
+        }
+
+        if(keyboard.justPressed(GLFW_KEY_ESCAPE) || startPressed){
             isPaused = !isPaused;
             if (isPaused) {
                 if (isEngineLoopLoaded) ma_sound_stop(&engineLoopSound);
@@ -1082,6 +1094,7 @@ class Playstate: public our::State {
             const ImVec2 display = ImGui::GetIO().DisplaySize;
             ImGui::SetNextWindowPos(ImVec2(display.x * 0.5f, display.y * 0.5f), ImGuiCond_Always, ImVec2(0.5f, 0.5f));
             ImGui::SetNextWindowSize(ImVec2(300, 320));
+            ImGui::SetNextWindowFocus();
             ImGuiWindowFlags flags = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoSavedSettings;
             
             ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.1f, 0.1f, 0.1f, 0.9f));
@@ -1142,7 +1155,6 @@ class Playstate: public our::State {
         flags |= ImGuiWindowFlags_AlwaysAutoResize;
         flags |= ImGuiWindowFlags_NoSavedSettings;
         flags |= ImGuiWindowFlags_NoFocusOnAppearing;
-        flags |= ImGuiWindowFlags_NoNav;
 
         if(ImGui::Begin("Coordinates", nullptr, flags)){
             our::Entity* target = freeRoaming ? findEntityByName(world, "main_camera") : findEntityByName(world, "player");
