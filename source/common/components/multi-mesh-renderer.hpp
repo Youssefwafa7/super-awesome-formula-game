@@ -53,6 +53,10 @@ namespace our {
 
         void deserialize(const nlohmann::json& data) override;
 
+        // When true, this component's meshes/materials/textures are borrowed from
+        // another component (e.g. the player's) and must NOT be deleted on destruction.
+        bool borrowedFromSource = false;
+
         ~MultiMeshRendererComponent() override;
 
     private:

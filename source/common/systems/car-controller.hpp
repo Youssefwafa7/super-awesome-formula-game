@@ -27,6 +27,202 @@ namespace our {
     class CarControllerSystem {
         Application* app = nullptr;
 
+        // Ordered checkpoint positions for AI cars (set externally via update()).
+        std::vector<glm::vec3> aiCheckpoints;
+
+        // ── AI steering / throttle computation ──
+        //
+        // Given a car's current state and the racing-line checkpoints, compute
+        // synthetic throttle [-1..1] and steer [-1..1] values that mimic a human driver.
+        static void computeAIInput(
+            CarControllerComponent* car,
+            const Transform& transform,
+            const std::vector<glm::vec3>& checkpoints,
+            TrackHeightfieldComponent::SurfaceType currentSurface,
+            float deltaTime,
+            float& outThrottle,
+            float& outSteer
+        ) {
+            outThrottle = 0.0f;
+            outSteer = 0.0f;
+            if(checkpoints.empty()) return;
+
+            const int numCP = (int)checkpoints.size();
+            int cpIdx = car->nextCheckpointIndex % numCP;
+
+            // ── 1. Target point ──
+            // Use a tight lookahead to hug the racing line closely.
+            const glm::vec3& cpCurrent = checkpoints[cpIdx];
+            const glm::vec3& cpNext = checkpoints[(cpIdx + 1) % numCP];
+            const glm::vec3& cpNext2 = checkpoints[(cpIdx + 2) % numCP];
+
+            const float lookahead = 0.15f + car->aiRandomSeed * 0.10f;
+            glm::vec3 target = glm::mix(cpCurrent, cpNext, lookahead);
+
+            // Small lateral offset to avoid stacking (much smaller than before).
+            {
+                glm::vec3 lineDir = cpNext - cpCurrent;
+                float lineLen = glm::length(glm::vec2(lineDir.x, lineDir.z));
+                if(lineLen > 0.01f){
+                    glm::vec3 perp(lineDir.z / lineLen, 0.0f, -lineDir.x / lineLen);
+                    target += perp * (car->aiLateralOffset * 0.3f); // Reduced from 1.0 to 0.3
+                }
+            }
+
+            // ── 2. Direction & steering ──
+            const glm::vec3 carPos = transform.position;
+            const glm::vec3 forward = getForward(transform.rotation.y);
+            const glm::vec3 toTarget = target - carPos;
+            const glm::vec2 toTarget2D(toTarget.x, toTarget.z);
+            const float distToTarget = glm::length(toTarget2D);
+
+            if(distToTarget < 0.01f){
+                if (cpIdx + 1 >= numCP) car->currentLap++;
+                car->nextCheckpointIndex = (cpIdx + 1) % numCP;
+                car->crossedStartLine = true;
+                outThrottle = 0.3f;
+                return;
+            }
+
+            const glm::vec2 desiredDir = glm::normalize(toTarget2D);
+            const glm::vec2 fwd2D = glm::normalize(glm::vec2(forward.x, forward.z));
+
+            // Cross product sign gives steering direction.
+            // In our coordinate system, if +Z is forward and +X is left,
+            // the correct 2D cross product sign to match steering input is (fwd.z * dir.x - fwd.x * dir.z).
+            const float cross = fwd2D.y * desiredDir.x - fwd2D.x * desiredDir.y;
+            const float dot = glm::clamp(glm::dot(fwd2D, desiredDir), -1.0f, 1.0f);
+            const float angleError = std::acos(dot); // 0..PI
+
+            // Aggressive steering: higher multiplier for sharper response.
+            float rawSteer = std::clamp(cross * 6.0f, -1.0f, 1.0f);
+            if(angleError > 1.2f) rawSteer = (cross >= 0.0f) ? 1.0f : -1.0f;
+
+            // Fast steering smoothing for responsive turns.
+            const float steerSmooth = 1.0f - std::exp(-15.0f * deltaTime);
+            car->aiSmoothedSteer += (rawSteer - car->aiSmoothedSteer) * steerSmooth;
+            outSteer = std::clamp(car->aiSmoothedSteer, -1.0f, 1.0f);
+
+            // Tiny randomness for variety.
+            outSteer += std::sin(car->aiRandomSeed * 100.0f + (float)glfwGetTime() * 2.0f) * 0.01f;
+            outSteer = std::clamp(outSteer, -1.0f, 1.0f);
+
+            // ── 3. Throttle based on turn sharpness ──
+            // Look ahead at segment angles for anticipatory braking.
+            const glm::vec3 seg1 = cpNext - cpCurrent;
+            const glm::vec3 seg2 = cpNext2 - cpNext;
+            float segDot = 1.0f;
+            {
+                const glm::vec2 s1(seg1.x, seg1.z);
+                const glm::vec2 s2(seg2.x, seg2.z);
+                float l1 = glm::length(s1);
+                float l2 = glm::length(s2);
+                if(l1 > 0.01f && l2 > 0.01f){
+                    segDot = glm::dot(s1 / l1, s2 / l2);
+                }
+            }
+            // Aggressive speed reduction for turns.
+            const float turnSharpness = 1.0f - std::clamp(segDot, -1.0f, 1.0f); // 0..2
+            float speedFactor = std::clamp(1.0f - turnSharpness * 0.6f, 0.15f, 1.0f);
+
+            // Also slow down hard when the car isn't facing the target.
+            if(angleError > 0.3f){
+                speedFactor *= std::clamp(1.0f - (angleError - 0.3f) / 2.0f, 0.15f, 1.0f);
+            }
+
+            outThrottle = speedFactor;
+
+            // ── 4. Surface-aware correction ──
+            const bool onGrass = (currentSurface == TrackHeightfieldComponent::SurfaceType::Grass);
+            if(onGrass){
+                // Find the closest upcoming checkpoint and steer hard toward it.
+                float bestDist = 1e9f;
+                int bestIdx = cpIdx;
+                for(int i = 0; i < std::min(numCP, 10); i++){
+                    int testIdx = (cpIdx + i) % numCP;
+                    float d = glm::distance(glm::vec2(carPos.x, carPos.z),
+                                            glm::vec2(checkpoints[testIdx].x, checkpoints[testIdx].z));
+                    if(d < bestDist){ bestDist = d; bestIdx = testIdx; }
+                }
+                const glm::vec3 recoveryTarget = checkpoints[bestIdx];
+                const glm::vec2 toRecovery = glm::normalize(
+                    glm::vec2(recoveryTarget.x - carPos.x, recoveryTarget.z - carPos.z)
+                );
+                const float recoverCross = fwd2D.y * toRecovery.x - fwd2D.x * toRecovery.y;
+                outSteer = std::clamp(recoverCross * 8.0f, -1.0f, 1.0f);
+                outThrottle *= 0.4f;
+            }
+
+            // ── 5. Wall-stuck recovery ──
+            // ── 5. Wall-stuck recovery ──
+            // Only trigger if the car was previously moving (reached speed > 5) and
+            // is now stuck. Use a timer so they commit to reversing for a full second.
+            if(car->speed > 5.0f) car->aiHasReachedSpeed = true;
+            
+            if(car->aiRecoveryTimer > 0.0f){
+                car->aiRecoveryTimer -= deltaTime;
+                outThrottle = -1.0f; // Fast reverse
+                outSteer = car->aiRecoverySteer; // Hold steering
+            }
+            else if(car->aiHasReachedSpeed && std::abs(car->speed) < 1.0f && !onGrass){
+                // Stuck! Start a 1.2 second recovery maneuver
+                car->aiRecoveryTimer = 1.2f;
+                // Steer in the opposite direction of where they were trying to go to back away cleanly
+                car->aiRecoverySteer = (rawSteer >= 0.0f) ? -1.0f : 1.0f;
+                outThrottle = -1.0f;
+                outSteer = car->aiRecoverySteer;
+            }
+
+            // ── 6. Racing-line deviation guard ──
+            if(!onGrass && std::abs(car->speed) >= 0.5f){
+                const glm::vec2 A(cpCurrent.x, cpCurrent.z);
+                const glm::vec2 B(cpNext.x, cpNext.z);
+                const glm::vec2 P(carPos.x, carPos.z);
+                const glm::vec2 AB = B - A;
+                const float ABlen2 = glm::dot(AB, AB);
+                float perpDist = 0.0f;
+                if(ABlen2 > 0.01f){
+                    const float t = std::clamp(glm::dot(P - A, AB) / ABlen2, 0.0f, 1.0f);
+                    const glm::vec2 closest = A + t * AB;
+                    perpDist = glm::length(P - closest);
+                }
+                const float deviationThreshold = 6.0f;
+                if(perpDist > deviationThreshold){
+                    float correctionStrength = std::clamp((perpDist - deviationThreshold) * 0.15f, 0.0f, 0.7f);
+                    outSteer = outSteer * (1.0f - correctionStrength) + rawSteer * correctionStrength;
+                    outSteer = std::clamp(outSteer, -1.0f, 1.0f);
+                    // Also slow down when off-line.
+                    outThrottle *= std::clamp(1.0f - correctionStrength * 0.5f, 0.3f, 1.0f);
+                }
+            }
+
+            // ── 7. Checkpoint advance ──
+            // With dense checkpoints (~9 units apart), use a small radius.
+            const float cpRadius = 4.0f + car->aiRandomSeed * 2.0f;
+            if(distToTarget < cpRadius){
+                if (cpIdx + 1 >= numCP) car->currentLap++;
+                car->nextCheckpointIndex = (cpIdx + 1) % numCP;
+                car->crossedStartLine = true;
+            }
+
+            // Also advance if we've passed the checkpoint (closer to next than current).
+            {
+                const float distToCurrent = glm::distance(
+                    glm::vec2(carPos.x, carPos.z),
+                    glm::vec2(cpCurrent.x, cpCurrent.z)
+                );
+                const float distToNext = glm::distance(
+                    glm::vec2(carPos.x, carPos.z),
+                    glm::vec2(cpNext.x, cpNext.z)
+                );
+                if(distToNext < distToCurrent && distToCurrent > 3.0f){
+                    if (cpIdx + 1 >= numCP) car->currentLap++;
+                    car->nextCheckpointIndex = (cpIdx + 1) % numCP;
+                    car->crossedStartLine = true;
+                }
+            }
+        }
+
         static float resolveVerticalTarget(
             float currentY,
             float sampledTargetY,
@@ -378,8 +574,12 @@ namespace our {
     public:
         void enter(Application* application){ app = application; }
 
-        void update(World* world, float deltaTime, bool isRaceStarted = true){
+        void update(World* world, float deltaTime, bool isRaceStarted = true,
+                    const std::vector<glm::vec3>& checkpoints = {}){
             if(app == nullptr) return;
+
+            // Store checkpoints for AI use.
+            aiCheckpoints = checkpoints;
 
             auto* track = findTrack(world);
 
@@ -466,26 +666,36 @@ namespace our {
                     }
                 }
 
+                // ── Input: AI or Player ──
                 float throttle = 0.0f;
                 float steer = 0.0f;
-                if(isRaceStarted){
-                    throttle = (keyboard.isPressed(GLFW_KEY_W) ? 1.0f : 0.0f) - (keyboard.isPressed(GLFW_KEY_S) ? 1.0f : 0.0f);
-                    steer = (keyboard.isPressed(GLFW_KEY_A) ? 1.0f : 0.0f) - (keyboard.isPressed(GLFW_KEY_D) ? 1.0f : 0.0f);
 
-                    GLFWgamepadstate state;
-                    if (glfwGetGamepadState(GLFW_JOYSTICK_1, &state)) {
-                        float rt = (state.axes[GLFW_GAMEPAD_AXIS_RIGHT_TRIGGER] + 1.0f) / 2.0f;
-                        float lt = (state.axes[GLFW_GAMEPAD_AXIS_LEFT_TRIGGER] + 1.0f) / 2.0f;
-                        float leftX = state.axes[GLFW_GAMEPAD_AXIS_LEFT_X];
+                if(car->isAI){
+                    // AI car: compute synthetic throttle/steer from checkpoint data.
+                    if(isRaceStarted && !aiCheckpoints.empty()){
+                        computeAIInput(car, transform, aiCheckpoints, currentSurface, deltaTime, throttle, steer);
+                    }
+                } else {
+                    // Player car: read keyboard/gamepad input.
+                    if(isRaceStarted){
+                        throttle = (keyboard.isPressed(GLFW_KEY_W) ? 1.0f : 0.0f) - (keyboard.isPressed(GLFW_KEY_S) ? 1.0f : 0.0f);
+                        steer = (keyboard.isPressed(GLFW_KEY_A) ? 1.0f : 0.0f) - (keyboard.isPressed(GLFW_KEY_D) ? 1.0f : 0.0f);
 
-                        // Deadzone for analog stick
-                        if (std::abs(leftX) < 0.1f) leftX = 0.0f;
+                        GLFWgamepadstate state;
+                        if (glfwGetGamepadState(GLFW_JOYSTICK_1, &state)) {
+                            float rt = (state.axes[GLFW_GAMEPAD_AXIS_RIGHT_TRIGGER] + 1.0f) / 2.0f;
+                            float lt = (state.axes[GLFW_GAMEPAD_AXIS_LEFT_TRIGGER] + 1.0f) / 2.0f;
+                            float leftX = state.axes[GLFW_GAMEPAD_AXIS_LEFT_X];
 
-                        throttle += (rt - lt);
-                        steer += -leftX; // Left is positive, Right is negative in this engine
+                            // Deadzone for analog stick
+                            if (std::abs(leftX) < 0.1f) leftX = 0.0f;
 
-                        throttle = std::clamp(throttle, -1.0f, 1.0f);
-                        steer = std::clamp(steer, -1.0f, 1.0f);
+                            throttle += (rt - lt);
+                            steer += -leftX; // Left is positive, Right is negative in this engine
+
+                            throttle = std::clamp(throttle, -1.0f, 1.0f);
+                            steer = std::clamp(steer, -1.0f, 1.0f);
+                        }
                     }
                 }
                 

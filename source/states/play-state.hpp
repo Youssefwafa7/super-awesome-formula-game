@@ -15,6 +15,7 @@
 #include <components/car-controller.hpp>
 #include <components/track-heightfield.hpp>
 #include "miniaudio.h"
+#include <deserialize-utils.hpp>
 
 #include <string>
 #include <fstream>
@@ -32,7 +33,7 @@ class Playstate: public our::State {
     our::ChaseCameraSystem chaseCameraSystem;
     our::WheelSpinSystem wheelSpinSystem;
 
-    bool debugCollisionOverlayEnabled = true;
+    bool debugCollisionOverlayEnabled = false;
     bool debugDrawCarBox = true;
     bool debugDrawWallBoxes = true;
     bool debugDrawWallSegments = false;
@@ -95,6 +96,15 @@ class Playstate: public our::State {
     float checkpointRadius = 25.0f;
     std::string lastCheckpointStatus;
 
+    // Number of AI cars to spawn
+    static constexpr int kNumAICars = 2;
+
+    // ── Auto-recording system ──
+    bool isRecording = false;
+    std::vector<glm::vec3> recordedPositions;
+    glm::vec3 lastRecordedPos = glm::vec3(0.0f);
+    float recordDistanceInterval = 3.0f; // sample every 3 units of travel
+
     void loadCheckpoints() {
         checkpoints.clear();
         lastCheckpointStatus = "";
@@ -148,7 +158,7 @@ class Playstate: public our::State {
         else if (currentTrackId == "silverstone") baseTime = 100.0f;
         else if (currentTrackId == "spa") baseTime = 130.0f;
 
-        for (int i = 0; i < 5; i++) {
+        for (int i = 0; i < kNumAICars; i++) {
             AiRacer ai;
             ai.name = "AI Racer " + std::to_string(i + 1);
             ai.lapTime = baseTime + (float)(std::rand() % 1000 - 500) / 100.0f;
@@ -157,105 +167,234 @@ class Playstate: public our::State {
         }
     }
 
+    // Spawn AI car entities by creating them programmatically and sharing
+    // the player's mesh/material data (avoids re-loading the GLTF model).
+    void spawnAICars() {
+        if (checkpoints.empty()) return; // No checkpoints → no AI
+
+        auto* player = findEntityByName(world, "player");
+        if (!player) return;
+
+        auto* playerMulti = player->getComponent<our::MultiMeshRendererComponent>();
+        auto* playerCar = player->getComponent<our::CarControllerComponent>();
+        if (!playerMulti || !playerCar) return;
+
+        const glm::vec3 spawnPos = player->localTransform.position;
+        const float spawnYaw = player->localTransform.rotation.y;
+
+        // Forward and right directions at spawn.
+        const glm::vec3 fwd(std::sin(spawnYaw), 0.0f, std::cos(spawnYaw));
+        const glm::vec3 right(fwd.z, 0.0f, -fwd.x);
+
+        const float rowSpacing = 15.0f;
+        const float colSpacing = 8.0f;
+
+        // Different tint multipliers for AI cars.
+        const glm::vec4 aiTints[] = {
+            {0.2f, 0.5f, 1.0f, 1.0f},  // blue
+            {1.0f, 0.3f, 0.3f, 1.0f},  // red
+            {0.3f, 1.0f, 0.3f, 1.0f},  // green
+        };
+
+        // Get starting grid from track config
+        const auto& fullConfig = getApp()->getConfig();
+        const auto& sceneConfig = fullConfig["scene"];
+        const auto* trackPreset = findPresetById(sceneConfig["presets"]["tracks"], currentTrackId);
+        const nlohmann::json* spawnArray = (trackPreset && trackPreset->contains("spawn") && (*trackPreset)["spawn"].is_array()) 
+                                            ? &((*trackPreset)["spawn"]) : nullptr;
+
+        for (int i = 0; i < kNumAICars; i++) {
+            try {
+                our::Entity* aiEnt = world.add();
+                aiEnt->name = "ai_car_" + std::to_string(i);
+                aiEnt->parent = nullptr;
+
+                if (spawnArray && i < (int)spawnArray->size()) {
+                    const auto& s = (*spawnArray)[i];
+                    aiEnt->localTransform.position = s.value("position", glm::vec3(0.0f));
+                    aiEnt->localTransform.rotation = glm::radians(s.value("rotation", glm::vec3(0.0f)));
+                } else {
+                    // Fallback to relative positioning if no grid defined
+                    int row = i / 2 + 1;
+                    int col = (i % 2 == 0) ? -1 : 1;
+                    glm::vec3 offset = -fwd * (rowSpacing * (float)row) + right * (colSpacing * (float)col * 0.5f);
+                    aiEnt->localTransform.position = spawnPos + offset;
+                    aiEnt->localTransform.rotation = player->localTransform.rotation;
+                }
+                aiEnt->localTransform.scale = player->localTransform.scale;
+
+                // ── Car Controller (copy tuning from player) ──
+                auto* aiCarCtrl = aiEnt->addComponent<our::CarControllerComponent>();
+                // Give AI cars individual speeds: first AI is fastest, second is slightly slower.
+                float speedMultiplier = 0.93f; // First AI
+                if (i == 1) speedMultiplier = 0.90f; // Second AI
+                else if (i > 1) speedMultiplier = 0.85f; // Any extra AI
+
+                aiCarCtrl->acceleration = playerCar->acceleration * speedMultiplier;
+                aiCarCtrl->brakeAcceleration = playerCar->brakeAcceleration * 1.4f; // Stop faster
+                aiCarCtrl->maxSpeed = playerCar->maxSpeed * speedMultiplier;
+                aiCarCtrl->maxReverseSpeed = playerCar->maxReverseSpeed;
+                aiCarCtrl->turnSpeed = playerCar->turnSpeed * 1.5f;
+                aiCarCtrl->linearDamping = playerCar->linearDamping;
+                aiCarCtrl->grassSpeedFactor = playerCar->grassSpeedFactor;
+                aiCarCtrl->grassDamping = playerCar->grassDamping;
+                aiCarCtrl->grassTurnFactor = playerCar->grassTurnFactor;
+                aiCarCtrl->grassAccelFactor = playerCar->grassAccelFactor;
+                aiCarCtrl->wallBounceDamping = playerCar->wallBounceDamping;
+                aiCarCtrl->collisionSubstepDistance = playerCar->collisionSubstepDistance;
+                aiCarCtrl->collisionRadius = playerCar->collisionRadius;
+                aiCarCtrl->wallPushback = playerCar->wallPushback;
+                aiCarCtrl->wallResolveIterations = playerCar->wallResolveIterations;
+                aiCarCtrl->maxClimbHeight = playerCar->maxClimbHeight;
+                aiCarCtrl->wheelSteerMaxAngle = playerCar->wheelSteerMaxAngle;
+                aiCarCtrl->groundClearance = playerCar->groundClearance;
+                aiCarCtrl->slopeSmoothingSpeed = playerCar->slopeSmoothingSpeed;
+                aiCarCtrl->maxPitchAngle = playerCar->maxPitchAngle;
+                aiCarCtrl->maxRollAngle = playerCar->maxRollAngle;
+
+                // AI-specific state
+                aiCarCtrl->isAI = true;
+                aiCarCtrl->nextCheckpointIndex = 0;
+                aiCarCtrl->currentLap = 1;
+                aiCarCtrl->crossedStartLine = false;
+                aiCarCtrl->lastHitIdx = -1;
+                aiCarCtrl->aiLateralOffset = (i % 2 == 0 ? 1.0f : -1.0f) * (1.0f + (float)i * 0.5f);
+                aiCarCtrl->aiRandomSeed = (float)(i + 1) / (float)(kNumAICars + 1);
+
+                // ── Multi Mesh Renderer (share mesh/material data from player) ──
+                auto* aiMulti = aiEnt->addComponent<our::MultiMeshRendererComponent>();
+                aiMulti->borrowedFromSource = true; // Don't delete shared resources!
+                aiMulti->sourceObjPath = playerMulti->sourceObjPath;
+                aiMulti->mergeByMaterial = playerMulti->mergeByMaterial;
+
+                // Copy all parts — mesh/material pointers are shared (owned by player).
+                aiMulti->parts.reserve(playerMulti->parts.size());
+                for (const auto& srcPart : playerMulti->parts) {
+                    our::MultiMeshRendererComponent::Part p;
+                    p.mesh = srcPart.mesh;
+                    p.material = srcPart.material;
+                    p.objectName = srcPart.objectName;
+                    p.materialName = srcPart.materialName;
+                    p.localTransform = srcPart.localTransform;
+                    p.aabbSize = srcPart.aabbSize;
+                    aiMulti->parts.push_back(std::move(p));
+                }
+
+            } catch (...) {
+                // Silently skip if any AI car fails to spawn.
+            }
+        }
+    }
+
     void updateRaceLogic(float deltaTime) {
-        if (!isRaceStarted || raceFinished || checkpoints.size() < 2) return;
+        if (!isRaceStarted || raceFinished || checkpoints.empty()) return;
 
-        try {
-            auto* player = findEntityByName(world, "player");
-            auto* track = findTrack(world);
-            if (!player || !track) return;
+        struct Ranker {
+            our::Entity* entity;
+            float progress;
+        };
+        std::vector<Ranker> carRanks;
 
-            glm::vec3 playerPos = player->localTransform.position;
+        for (auto* entity : world.getEntities()) {
+            auto* car = entity->getComponent<our::CarControllerComponent>();
+            if (!car) continue;
 
-            // Wait for player to cross the start line (checkpoint 0) before starting logic
-            if (!crossedStartLine) {
-                if (!checkpoints.empty()) {
-                    float dist = glm::distance(playerPos, checkpoints[0].pos);
+            glm::vec3 carPos = entity->localTransform.position;
+
+            // Player-specific logic (checkpoint detection)
+            // AI checkpoint detection is handled in CarControllerSystem::computeAIInput
+            if (!car->isAI) {
+                if (!car->crossedStartLine) {
+                    float dist = glm::distance(carPos, checkpoints[0].pos);
                     if (dist < checkpoints[0].radius) {
-                        crossedStartLine = true;
-                        lastHitIdx = 0;
-                        totalRaceTime = 0.0f;
-                        currentLapTime = 0.0f;
-                        nextCheckpointIndex = 1 % checkpoints.size();
-                    }
-                }
-                return;
-            }
-
-            totalRaceTime += (float)deltaTime;
-            currentLapTime += (float)deltaTime;
-
-            // 1. Off-track penalty (Disabled for now)
-            /*
-            float y;
-            our::TrackHeightfieldComponent::SurfaceType surface;
-            if (track->sampleSurface(playerPos.x, playerPos.z, y, surface)) {
-                if (surface == our::TrackHeightfieldComponent::SurfaceType::Grass) {
-                    totalPenaltyTime += (float)deltaTime * 1.0f; 
-                }
-            }
-            */
-            // 2. Checkpoint tracking
-            if (!checkpoints.empty()) {
-                int foundIdx = -1;
-                // Search forward up to half the track.
-                // This prevents hitting the 'end' checkpoint while standing at the 'start' 
-                // if they are recorded at the same physical location.
-                int searchRange = std::max(1, (int)checkpoints.size() / 2);
-                for (int i = 0; i < searchRange; ++i) {
-                    int idx = (nextCheckpointIndex + i) % checkpoints.size();
-                    float dist = glm::distance(playerPos, checkpoints[idx].pos);
-                    if (dist < checkpoints[idx].radius) {
-                        foundIdx = idx;
-                        break;
-                    }
-                }
-
-                if (foundIdx != -1 && foundIdx != lastHitIdx) {
-                    // Calculate how many were skipped
-                    int numSkipped = 0;
-                    if (foundIdx >= nextCheckpointIndex) {
-                        numSkipped = foundIdx - nextCheckpointIndex;
-                    } else {
-                        // Skipping across the finish line
-                        numSkipped = ((int)checkpoints.size() - nextCheckpointIndex) + foundIdx;
-                    }
-
-                    if (numSkipped > 0) {
-                        totalPenaltyTime += (float)numSkipped * 20.0f; 
-                    }
-
-                    // Check for lap completion
-                    // A lap is completed if we wrap around the finish line.
-                    if (foundIdx < nextCheckpointIndex || (foundIdx == 0 && nextCheckpointIndex == 0)) {
-                        if (bestLapTime == 0.0f || currentLapTime < bestLapTime) bestLapTime = currentLapTime;
-                        if (currentLap >= totalLaps) {
-                            raceFinished = true;
-                        } else {
-                            currentLap++;
+                        car->crossedStartLine = true;
+                        car->lastHitIdx = 0;
+                        car->nextCheckpointIndex = 1 % checkpoints.size();
+                        if (entity->name == "player") {
+                            totalRaceTime = 0.0f;
                             currentLapTime = 0.0f;
                         }
                     }
-                    lastHitIdx = foundIdx;
-                    nextCheckpointIndex = (foundIdx + 1) % checkpoints.size();
+                } else {
+                    int searchRange = std::max(1, (int)checkpoints.size() / 2);
+                    int foundIdx = -1;
+                    for (int i = 0; i < searchRange; ++i) {
+                        int idx = (car->nextCheckpointIndex + i) % checkpoints.size();
+                        float dist = glm::distance(carPos, checkpoints[idx].pos);
+                        if (dist < checkpoints[idx].radius) {
+                            foundIdx = idx;
+                            break;
+                        }
+                    }
+
+                    if (foundIdx != -1 && foundIdx != car->lastHitIdx) {
+                        // Calculate how many were skipped
+                        int numSkipped = 0;
+                        if (foundIdx >= car->nextCheckpointIndex) {
+                            numSkipped = foundIdx - car->nextCheckpointIndex;
+                        } else {
+                            // Skipping across the finish line (wrap around)
+                            numSkipped = ((int)checkpoints.size() - car->nextCheckpointIndex) + foundIdx;
+                        }
+
+                        if (numSkipped > 0 && !car->isAI) {
+                            totalPenaltyTime += (float)numSkipped * 20.0f; 
+                        }
+
+                        if (foundIdx < car->nextCheckpointIndex || (foundIdx == 0 && car->nextCheckpointIndex == 0)) {
+                            car->currentLap++;
+                            if (entity->name == "player") {
+                                if (bestLapTime == 0.0f || currentLapTime < bestLapTime) bestLapTime = currentLapTime;
+                                if (car->currentLap > totalLaps) {
+                                    raceFinished = true;
+                                } else {
+                                    currentLapTime = 0.0f;
+                                }
+                            }
+                        }
+                        car->lastHitIdx = foundIdx;
+                        car->nextCheckpointIndex = (foundIdx + 1) % checkpoints.size();
+                    }
                 }
             }
 
-            // 3. AI Position Simulation
-            float progress = 0.0f;
-            if (!checkpoints.empty()) progress = (float)nextCheckpointIndex / (float)checkpoints.size();
-            for (auto& ai : aiRacers) {
-                ai.totalTime = ai.lapTime * (float)(currentLap - 1 + progress);
+            // Calculate progress for ranking
+            float progress = (float)car->currentLap * 10000.0f;
+            progress += (float)car->nextCheckpointIndex * 100.0f;
+
+            // Finer resolution: distance to next checkpoint
+            int targetIdx = car->nextCheckpointIndex;
+            int prevIdx = (targetIdx + (int)checkpoints.size() - 1) % (int)checkpoints.size();
+            float distToNext = glm::distance(carPos, checkpoints[targetIdx].pos);
+            float segLen = glm::distance(checkpoints[prevIdx].pos, checkpoints[targetIdx].pos);
+            if (segLen > 0.1f) {
+                progress += (1.0f - std::clamp(distToNext / segLen, 0.0f, 1.0f)) * 100.0f;
             }
 
-            float playerEffectiveTime = totalRaceTime + totalPenaltyTime;
-            int rank = 1;
-            for (const auto& ai : aiRacers) {
-                if (ai.totalTime < playerEffectiveTime) rank++;
+            carRanks.push_back({entity, progress});
+        }
+
+        // Sort cars by progress
+        std::sort(carRanks.begin(), carRanks.end(), [](const Ranker& a, const Ranker& b) {
+            return a.progress > b.progress;
+        });
+
+        // Find player rank and sync state
+        for (int i = 0; i < (int)carRanks.size(); ++i) {
+            if (carRanks[i].entity->name == "player") {
+                playerPosition = i + 1;
+                auto* pCar = carRanks[i].entity->getComponent<our::CarControllerComponent>();
+                currentLap = pCar->currentLap;
+                crossedStartLine = pCar->crossedStartLine;
+                nextCheckpointIndex = pCar->nextCheckpointIndex;
+                lastHitIdx = pCar->lastHitIdx;
+                break;
             }
-            playerPosition = rank;
-        } catch (...) {
-            // Silently ignore logic errors to prevent black screen (rendering will still happen)
+        }
+
+        if (isRaceStarted && !raceFinished) {
+            totalRaceTime += deltaTime;
+            currentLapTime += deltaTime;
         }
     }
 
@@ -296,6 +435,37 @@ class Playstate: public our::State {
             file.close();
 
             lastCheckpointStatus = (isStart ? "Track start recorded" : "Checkpoint added");
+        } catch (const std::exception& e) {
+            lastCheckpointStatus = "Error: " + std::string(e.what());
+        }
+    }
+
+    // Save the auto-recorded lap to the checkpoints CSV, replacing the old data.
+    void saveRecordedLap() {
+        if (currentTrackId.empty() || recordedPositions.size() < 5) {
+            lastCheckpointStatus = "Not enough data (" + std::to_string(recordedPositions.size()) + " points)";
+            return;
+        }
+
+        namespace fs = std::filesystem;
+        try {
+            fs::create_directories("assets/tracks");
+
+            // Save raw recording to _recorded.csv (does not overwrite AI checkpoints)
+            {
+                std::string rawFile = "assets/tracks/" + currentTrackId + "_recorded.csv";
+                std::ofstream out(rawFile, std::ios::out | std::ios::trunc);
+                if (out.is_open()) {
+                    out << "x,y,z,radius\n";
+                    for (const auto& p : recordedPositions) {
+                        out << p.x << "," << p.y << "," << p.z << ",12\n";
+                    }
+                    out.close();
+                }
+            }
+
+            lastCheckpointStatus = "Saved " + std::to_string(recordedPositions.size()) + " recorded points!";
+
         } catch (const std::exception& e) {
             lastCheckpointStatus = "Error: " + std::string(e.what());
         }
@@ -550,24 +720,34 @@ class Playstate: public our::State {
             };
 
             // Override spawn from track preset if provided.
-            if(trackPreset != nullptr && trackPreset->contains("spawn") && (*trackPreset)["spawn"].is_object()){
+            if(trackPreset != nullptr && trackPreset->contains("spawn")){
                 const auto& spawn = (*trackPreset)["spawn"];
-                if(spawn.contains("position") && player.contains("position") && player["position"].is_array() && spawn["position"].is_array()){
-                    const glm::vec3 playerPosition = readVec3(player["position"], glm::vec3(0.0f));
-                    const glm::vec3 spawnPosition = readVec3(spawn["position"], glm::vec3(0.0f));
-                    const glm::vec3 combinedPosition = playerPosition + spawnPosition;
-                    player["position"] = nlohmann::json::array({combinedPosition.x, combinedPosition.y, combinedPosition.z});
-                } else if(spawn.contains("position")) {
-                    player["position"] = spawn["position"];
+                const nlohmann::json* playerSpawn = nullptr;
+                
+                if(spawn.is_array() && spawn.size() >= 3){
+                    playerSpawn = &spawn[2]; // Use index 2 for player
+                } else if(spawn.is_object()){
+                    playerSpawn = &spawn;
                 }
 
-                if(spawn.contains("rotation") && player.contains("rotation") && player["rotation"].is_array() && spawn["rotation"].is_array()){
-                    const glm::vec3 playerRotation = readVec3(player["rotation"], glm::vec3(0.0f));
-                    const glm::vec3 spawnRotation = readVec3(spawn["rotation"], glm::vec3(0.0f));
-                    const glm::vec3 combinedRotation = playerRotation + spawnRotation;
-                    player["rotation"] = nlohmann::json::array({combinedRotation.x, combinedRotation.y, combinedRotation.z});
-                } else if(spawn.contains("rotation")) {
-                    player["rotation"] = spawn["rotation"];
+                if(playerSpawn){
+                    if(playerSpawn->contains("position") && player.contains("position") && player["position"].is_array() && (*playerSpawn)["position"].is_array()){
+                        const glm::vec3 playerPosition = readVec3(player["position"], glm::vec3(0.0f));
+                        const glm::vec3 spawnPosition = readVec3((*playerSpawn)["position"], glm::vec3(0.0f));
+                        const glm::vec3 combinedPosition = playerPosition + spawnPosition;
+                        player["position"] = nlohmann::json::array({combinedPosition.x, combinedPosition.y, combinedPosition.z});
+                    } else if(playerSpawn->contains("position")) {
+                        player["position"] = (*playerSpawn)["position"];
+                    }
+
+                    if(playerSpawn->contains("rotation") && player.contains("rotation") && player["rotation"].is_array() && (*playerSpawn)["rotation"].is_array()){
+                        const glm::vec3 playerRotation = readVec3(player["rotation"], glm::vec3(0.0f));
+                        const glm::vec3 spawnRotation = readVec3((*playerSpawn)["rotation"], glm::vec3(0.0f));
+                        const glm::vec3 combinedRotation = playerRotation + spawnRotation;
+                        player["rotation"] = nlohmann::json::array({combinedRotation.x, combinedRotation.y, combinedRotation.z});
+                    } else if(playerSpawn->contains("rotation")) {
+                        player["rotation"] = (*playerSpawn)["rotation"];
+                    }
                 }
             }
 
@@ -629,10 +809,24 @@ class Playstate: public our::State {
         currentLapTime = 0.0f;
         totalRaceTime = 0.0f;
         totalPenaltyTime = 0.0f;
+        nextCheckpointIndex = 0;
         crossedStartLine = false;
         lastHitIdx = -1;
         loadCheckpoints();
         initAiRacers();
+        
+        // Reset player component race state
+        if(auto* playerEnt = findEntityByName(world, "player")){
+            if(auto* pCar = playerEnt->getComponent<our::CarControllerComponent>()){
+                pCar->currentLap = 1;
+                pCar->nextCheckpointIndex = 0;
+                pCar->crossedStartLine = false;
+                pCar->lastHitIdx = -1;
+            }
+        }
+
+        // Spawn AI-controlled cars (requires checkpoints to be loaded first).
+        spawnAICars();
     }
 
     void onDraw(double deltaTime) override {
@@ -679,9 +873,49 @@ class Playstate: public our::State {
             saveCheckpoint(false);
         }
 
+        // ── Auto-recording toggle (R key) ──
+        if(keyboard.justPressed(GLFW_KEY_R)){
+            if(!isRecording){
+                // Start recording.
+                isRecording = true;
+                recordedPositions.clear();
+                auto* player = findEntityByName(world, "player");
+                if(player){
+                    lastRecordedPos = player->localTransform.position;
+                    recordedPositions.push_back(lastRecordedPos);
+                }
+                lastCheckpointStatus = "RECORDING started — drive a lap!";
+            } else {
+                // Stop recording and save.
+                isRecording = false;
+                saveRecordedLap();
+            }
+        }
+
+        // Auto-sample while recording.
+        if(isRecording){
+            auto* player = findEntityByName(world, "player");
+            if(player){
+                const glm::vec3 pos = player->localTransform.position;
+                const float dist = glm::distance(
+                    glm::vec2(pos.x, pos.z),
+                    glm::vec2(lastRecordedPos.x, lastRecordedPos.z)
+                );
+                if(dist >= recordDistanceInterval){
+                    recordedPositions.push_back(pos);
+                    lastRecordedPos = pos;
+                }
+            }
+        }
+
+        // Build checkpoint positions vector for AI cars.
+        std::vector<glm::vec3> cpPositions;
+        cpPositions.reserve(checkpoints.size());
+        for (const auto& cp : checkpoints) cpPositions.push_back(cp.pos);
+
         // Update car controller system (handles snapping and position alignment even during countdown)
         if(!freeRoaming){
-            carControllerSystem.update(&world, (float)deltaTime, isRaceStarted);
+            carControllerSystem.update(&world, (float)deltaTime, isRaceStarted, cpPositions);
         }
 
         updateRaceLogic((float)deltaTime);
@@ -724,8 +958,11 @@ class Playstate: public our::State {
                 if(freeRoaming) ImGui::TextColored(ImVec4(1.0f, 1.0f, 0.2f, 1.0f), "[FREE ROAM]");
                 ImGui::Text("pos  x %.2f  y %.2f  z %.2f", p.x, p.y, p.z);
                 ImGui::Text("yaw  %.1f deg", yawDeg);
+                ImGui::Separator();
+                ImGui::Text("FPS: %.1f", ImGui::GetIO().Framerate);
             } else {
                 ImGui::TextUnformatted("target not found");
+                ImGui::Text("FPS: %.1f", ImGui::GetIO().Framerate);
             }
 
             ImGui::Dummy(ImVec2(0.0f, 4.0f));
@@ -755,38 +992,7 @@ class Playstate: public our::State {
         }
         ImGui::End();
 
-        // Bottom-left speedometer HUD.
-        {
-            const ImVec2 display = ImGui::GetIO().DisplaySize;
 
-            ImGui::SetNextWindowPos(ImVec2(10.0f, std::max(10.0f, display.y - 70.0f)), ImGuiCond_Always);
-            ImGui::SetNextWindowBgAlpha(0.35f);
-
-            ImGuiWindowFlags spdFlags = 0;
-            spdFlags |= ImGuiWindowFlags_NoDecoration;
-            spdFlags |= ImGuiWindowFlags_AlwaysAutoResize;
-            spdFlags |= ImGuiWindowFlags_NoSavedSettings;
-            spdFlags |= ImGuiWindowFlags_NoFocusOnAppearing;
-            spdFlags |= ImGuiWindowFlags_NoNav;
-
-            if(ImGui::Begin("Speed", nullptr, spdFlags)){
-                auto* player = findEntityByName(world, "player");
-                if(player){
-                    auto* car = player->getComponent<our::CarControllerComponent>();
-                    if(car){
-                        const float speedMS = std::abs(car->speed);
-                        const float speedKMH = speedMS * 3.6f * 1.5f;
-                        const bool reversing = (car->speed < -0.1f);
-                        ImGui::Text("%s  %.1f km/h", reversing ? "R" : "D", speedKMH);
-                    } else {
-                        ImGui::TextUnformatted("no car controller");
-                    }
-                } else {
-                    ImGui::TextUnformatted("player not found");
-                }
-            }
-            ImGui::End();
-        }
 
         // Countdown timer display
         if (!isRaceStarted && introAudioDone) {
@@ -868,6 +1074,26 @@ class Playstate: public our::State {
                 if(ImGui::Button("Add Checkpoint (N)", ImVec2(-1, 0))){
                     saveCheckpoint(false);
                 }
+                ImGui::Separator();
+                // Auto-recording controls.
+                if(isRecording){
+                    ImGui::TextColored(ImVec4(1.0f, 0.2f, 0.2f, 1.0f), "** RECORDING ** (%d pts)", (int)recordedPositions.size());
+                    if(ImGui::Button("Stop & Save (R)", ImVec2(-1, 0))){
+                        isRecording = false;
+                        saveRecordedLap();
+                    }
+                } else {
+                    if(ImGui::Button("Auto-Record Lap (R)", ImVec2(-1, 0))){
+                        isRecording = true;
+                        recordedPositions.clear();
+                        auto* player2 = findEntityByName(world, "player");
+                        if(player2){
+                            lastRecordedPos = player2->localTransform.position;
+                            recordedPositions.push_back(lastRecordedPos);
+                        }
+                        lastCheckpointStatus = "RECORDING started - drive a lap!";
+                    }
+                }
                 if(!lastCheckpointStatus.empty()){
                     ImGui::Separator();
                     ImGui::TextWrapped("%s", lastCheckpointStatus.c_str());
@@ -890,34 +1116,135 @@ class Playstate: public our::State {
             raceFlags |= ImGuiWindowFlags_NoNav;
 
             if(ImGui::Begin("Race HUD", nullptr, raceFlags)){
-                ImGui::SetWindowFontScale(1.5f);
                 if (!crossedStartLine) {
+                    ImGui::SetWindowFontScale(2.0f);
                     ImGui::TextColored(ImVec4(1.0f, 1.0f, 0.2f, 1.0f), "CROSS THE START LINE!");
+                    ImGui::SetWindowFontScale(1.0f);
                 } else {
-                    ImGui::Text("Lap: %d / %d", currentLap, totalLaps);
-                    ImGui::SameLine(200);
-                    ImGui::Text("Pos: %d / %d", playerPosition, (int)aiRacers.size() + 1);
-                }
-                
-                ImGui::Separator();
-                
-                ImGui::Text("Time: %.2f", currentLapTime);
-                if(bestLapTime > 0) {
-                    ImGui::SameLine(200);
-                    ImGui::Text("Best: %.2f", bestLapTime);
-                }
-                
-                if(totalPenaltyTime > 0) {
-                    ImGui::TextColored(ImVec4(1.0f, 0.3f, 0.3f, 1.0f), "Penalty: +%.1fs", totalPenaltyTime);
+                    // --- TOP ROW: LAP & POSITION ---
+                    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.7f, 0.7f, 0.7f, 1.0f));
+                    ImGui::SetWindowFontScale(1.0f);
+                    ImGui::Text("LAP");
+                    ImGui::SameLine(180.0f);
+                    ImGui::Text("POSITION");
+                    ImGui::PopStyleColor();
+
+                    ImGui::SetWindowFontScale(3.5f);
+                    ImGui::TextColored(ImVec4(1.0f, 1.0f, 1.0f, 1.0f), "%d", std::min(currentLap, totalLaps));
+                    ImGui::SameLine();
+                    ImGui::SetWindowFontScale(1.5f);
+                    ImGui::TextColored(ImVec4(0.5f, 0.5f, 0.5f, 1.0f), "/ %d", totalLaps);
+                    
+                    ImGui::SameLine(180.0f);
+                    
+                    ImGui::SetWindowFontScale(3.5f);
+                    ImVec4 posColor = ImVec4(1.0f, 1.0f, 1.0f, 1.0f); // Default white
+                    if (playerPosition == 1) posColor = ImVec4(1.0f, 0.84f, 0.0f, 1.0f); // Gold
+                    else if (playerPosition == 2) posColor = ImVec4(0.75f, 0.75f, 0.75f, 1.0f); // Silver
+                    else if (playerPosition == 3) posColor = ImVec4(0.8f, 0.5f, 0.2f, 1.0f); // Bronze
+                    
+                    ImGui::TextColored(posColor, "%d", playerPosition);
+                    ImGui::SameLine();
+                    ImGui::SetWindowFontScale(1.5f);
+                    ImGui::TextColored(ImVec4(0.5f, 0.5f, 0.5f, 1.0f), "/ %d", (int)aiRacers.size() + 1);
+                    
+                    ImGui::SetWindowFontScale(1.0f);
+                    ImGui::Separator();
+                    
+                    // --- BOTTOM ROW: TIMES & PENALTIES ---
+                    ImGui::SetWindowFontScale(1.5f);
+                    ImGui::TextColored(ImVec4(0.8f, 0.8f, 0.8f, 1.0f), "TIME:");
+                    ImGui::SameLine(160.0f);
+                    ImGui::TextColored(ImVec4(1.0f, 1.0f, 1.0f, 1.0f), "%.2f", currentLapTime);
+
+                    if(bestLapTime > 0) {
+                        ImGui::TextColored(ImVec4(0.8f, 0.8f, 0.8f, 1.0f), "BEST:");
+                        ImGui::SameLine(160.0f);
+                        ImGui::TextColored(ImVec4(0.3f, 1.0f, 0.3f, 1.0f), "%.2f", bestLapTime);
+                    }
+                    
+                    if(totalPenaltyTime > 0) {
+                        ImGui::TextColored(ImVec4(1.0f, 0.2f, 0.2f, 1.0f), "PENALTY:");
+                        ImGui::SameLine(160.0f);
+                        ImGui::TextColored(ImVec4(1.0f, 0.2f, 0.2f, 1.0f), "+%.1fs", totalPenaltyTime);
+                    }
+                    ImGui::SetWindowFontScale(1.0f);
                 }
 
                 if(raceFinished) {
                     ImGui::Separator();
+                    ImGui::SetWindowFontScale(2.0f);
                     ImGui::TextColored(ImVec4(0.2f, 1.0f, 0.2f, 1.0f), "RACE FINISHED!");
                     ImGui::Text("Final Rank: %d", playerPosition);
+                    ImGui::SetWindowFontScale(1.0f);
                 }
             }
             ImGui::End();
+        }
+
+        // Speedometer HUD
+        {
+            auto* player = findEntityByName(world, "player");
+            our::CarControllerComponent* playerCar = nullptr;
+            if(player) playerCar = player->getComponent<our::CarControllerComponent>();
+
+            if(playerCar) {
+                const ImVec2 display = ImGui::GetIO().DisplaySize;
+                ImGui::SetNextWindowPos(ImVec2(display.x - 150.0f, display.y - 150.0f), ImGuiCond_Always, ImVec2(0.5f, 0.5f));
+                ImGui::SetNextWindowBgAlpha(0.0f); // Transparent background
+
+                ImGuiWindowFlags speedFlags = 0;
+                speedFlags |= ImGuiWindowFlags_NoDecoration;
+                speedFlags |= ImGuiWindowFlags_AlwaysAutoResize;
+                speedFlags |= ImGuiWindowFlags_NoSavedSettings;
+                speedFlags |= ImGuiWindowFlags_NoFocusOnAppearing;
+                speedFlags |= ImGuiWindowFlags_NoNav;
+
+                if(ImGui::Begin("Speedometer", nullptr, speedFlags)){
+                    ImDrawList* draw_list = ImGui::GetWindowDrawList();
+                    ImVec2 center = ImGui::GetCursorScreenPos();
+                    center.x += 75.0f;
+                    center.y += 75.0f;
+                    float radius = 70.0f;
+
+                    // Draw background dial (dark grey circle)
+                    draw_list->AddCircleFilled(center, radius, IM_COL32(30, 30, 30, 200), 32);
+                    draw_list->AddCircle(center, radius, IM_COL32(100, 100, 100, 255), 32, 2.0f);
+
+                    float speed = std::abs(playerCar->speed);
+                    float maxSpeed = playerCar->maxSpeed; 
+                    float speedRatio = std::clamp(speed / maxSpeed, 0.0f, 1.0f);
+
+                    // Draw tick marks
+                    for(int i = 0; i <= 10; i++) {
+                        float angle = 3.14159f * 0.75f + (i / 10.0f) * 3.14159f * 1.5f;
+                        ImVec2 p1 = ImVec2(center.x + std::cos(angle) * (radius - 10.0f), center.y + std::sin(angle) * (radius - 10.0f));
+                        ImVec2 p2 = ImVec2(center.x + std::cos(angle) * radius, center.y + std::sin(angle) * radius);
+                        draw_list->AddLine(p1, p2, IM_COL32(200, 200, 200, 255), (i % 5 == 0) ? 3.0f : 1.0f);
+                    }
+
+                    // Draw needle (red)
+                    float needleAngle = 3.14159f * 0.75f + speedRatio * 3.14159f * 1.5f;
+                    ImVec2 needleEnd = ImVec2(center.x + std::cos(needleAngle) * (radius - 15.0f), center.y + std::sin(needleAngle) * (radius - 15.0f));
+                    draw_list->AddLine(center, needleEnd, IM_COL32(255, 50, 50, 255), 4.0f);
+                    draw_list->AddCircleFilled(center, 8.0f, IM_COL32(200, 200, 200, 255)); // Center pin
+
+                    // Draw speed text (convert m/s to km/h approx, matching the old HUD's 1.5x multiplier)
+                    std::string speedStr = std::to_string((int)(speed * 3.6f * 1.5f));
+                    ImGui::SetWindowFontScale(2.0f);
+                    ImVec2 textSize = ImGui::CalcTextSize(speedStr.c_str());
+                    draw_list->AddText(ImGui::GetFont(), ImGui::GetFontSize(), ImVec2(center.x - textSize.x / 2.0f, center.y + 15.0f), IM_COL32(255, 255, 255, 255), speedStr.c_str());
+                    
+                    ImGui::SetWindowFontScale(1.0f);
+                    std::string unitStr = "km/h";
+                    ImVec2 unitSize = ImGui::CalcTextSize(unitStr.c_str());
+                    draw_list->AddText(ImGui::GetFont(), ImGui::GetFontSize(), ImVec2(center.x - unitSize.x / 2.0f, center.y + 45.0f), IM_COL32(150, 150, 150, 255), unitStr.c_str());
+
+                    // Dummy size to push the window size
+                    ImGui::Dummy(ImVec2(150.0f, 150.0f));
+                }
+                ImGui::End();
+            }
         }
     }
 

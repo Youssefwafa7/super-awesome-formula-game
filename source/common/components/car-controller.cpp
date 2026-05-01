@@ -39,6 +39,8 @@ namespace our {
         wallPushback = std::max(0.0f, wallPushback);
         wallResolveIterations = std::max(1, wallResolveIterations);
         maxClimbHeight = std::max(0.02f, maxClimbHeight);
+
+        isAI = data.value("isAI", isAI);
     }
 
 }
