@@ -93,6 +93,8 @@ class Playstate: public our::State {
     int playerPosition = 1;
     std::vector<AiRacer> aiRacers;
     bool raceFinished = false;
+    std::vector<std::string> finishers;
+    std::vector<std::string> currentStandings;
     bool crossedStartLine = false;
     int lastHitIdx = -1;
 
@@ -349,9 +351,7 @@ class Playstate: public our::State {
                             car->currentLap++;
                             if (entity->name == "player") {
                                 if (bestLapTime == 0.0f || currentLapTime < bestLapTime) bestLapTime = currentLapTime;
-                                if (car->currentLap > totalLaps) {
-                                    raceFinished = true;
-                                } else {
+                                if (car->currentLap <= totalLaps) {
                                     currentLapTime = 0.0f;
                                 }
                             }
@@ -362,17 +362,40 @@ class Playstate: public our::State {
                 }
             }
 
-            // Calculate progress for ranking
-            float progress = (float)car->currentLap * 10000.0f;
-            progress += (float)car->nextCheckpointIndex * 100.0f;
+            // Universal finish detection
+            if (car->currentLap > totalLaps && !car->alreadyFinished) {
+                car->alreadyFinished = true;
+                finishers.push_back(entity->name);
+                car->finishRank = (int)finishers.size();
+                if (entity->name == "player") {
+                    raceFinished = true;
+                }
+            }
 
-            // Finer resolution: distance to next checkpoint
-            int targetIdx = car->nextCheckpointIndex;
-            int prevIdx = (targetIdx + (int)checkpoints.size() - 1) % (int)checkpoints.size();
-            float distToNext = glm::distance(carPos, checkpoints[targetIdx].pos);
-            float segLen = glm::distance(checkpoints[prevIdx].pos, checkpoints[targetIdx].pos);
-            if (segLen > 0.1f) {
-                progress += (1.0f - std::clamp(distToNext / segLen, 0.0f, 1.0f)) * 100.0f;
+            // Calculate progress for ranking
+            float progress = 0.0f;
+            if (car->alreadyFinished) {
+                progress = 1000000.0f - (float)car->finishRank * 1000.0f; // Lock finished cars at the top in order
+            } else {
+                progress = (float)car->currentLap * 100000.0f;
+                progress += (float)car->nextCheckpointIndex * 100.0f;
+
+                // Finer resolution: project car position onto the track segment to prevent off-center glitches
+                int targetIdx = car->nextCheckpointIndex;
+                int prevIdx = (targetIdx + (int)checkpoints.size() - 1) % (int)checkpoints.size();
+                
+                glm::vec2 A(checkpoints[prevIdx].pos.x, checkpoints[prevIdx].pos.z);
+                glm::vec2 B(checkpoints[targetIdx].pos.x, checkpoints[targetIdx].pos.z);
+                glm::vec2 P(carPos.x, carPos.z);
+                
+                glm::vec2 AB = B - A;
+                float abLen2 = glm::dot(AB, AB);
+                float t = 0.0f;
+                if (abLen2 > 0.001f) {
+                    t = glm::dot(P - A, AB) / abLen2;
+                }
+                
+                progress += std::clamp(t, 0.0f, 1.0f) * 100.0f;
             }
 
             carRanks.push_back({entity, progress});
@@ -382,6 +405,11 @@ class Playstate: public our::State {
         std::sort(carRanks.begin(), carRanks.end(), [](const Ranker& a, const Ranker& b) {
             return a.progress > b.progress;
         });
+
+        currentStandings.clear();
+        for (const auto& rank : carRanks) {
+            currentStandings.push_back(rank.entity->name);
+        }
 
         // Find player rank and sync state
         for (int i = 0; i < (int)carRanks.size(); ++i) {
@@ -864,6 +892,8 @@ class Playstate: public our::State {
         isPaused = false;
 
         raceFinished = false;
+        finishers.clear();
+        currentStandings.clear();
         currentLap = 1;
         currentLapTime = 0.0f;
         totalRaceTime = 0.0f;
@@ -1210,6 +1240,38 @@ class Playstate: public our::State {
             ImGui::End();
         }
 
+        // Live Standings HUD
+        {
+            const ImVec2 display = ImGui::GetIO().DisplaySize;
+            ImGui::SetNextWindowPos(ImVec2(10.0f, display.y * 0.4f), ImGuiCond_Always, ImVec2(0.0f, 0.5f));
+            ImGui::SetNextWindowBgAlpha(0.35f);
+            
+            ImGuiWindowFlags stdFlags = 0;
+            stdFlags |= ImGuiWindowFlags_NoDecoration;
+            stdFlags |= ImGuiWindowFlags_AlwaysAutoResize;
+            stdFlags |= ImGuiWindowFlags_NoSavedSettings;
+            stdFlags |= ImGuiWindowFlags_NoFocusOnAppearing;
+            stdFlags |= ImGuiWindowFlags_NoNav;
+
+            if(ImGui::Begin("Live Standings", nullptr, stdFlags)){
+                ImGui::SetWindowFontScale(1.2f);
+                ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.0f, 1.0f), "STANDINGS");
+                ImGui::Separator();
+                
+                for (size_t i = 0; i < currentStandings.size(); ++i) {
+                    ImVec4 color = ImVec4(1.0f, 1.0f, 1.0f, 1.0f);
+                    if (i == 0) color = ImVec4(1.0f, 0.84f, 0.0f, 1.0f);
+                    else if (i == 1) color = ImVec4(0.75f, 0.75f, 0.75f, 1.0f);
+                    else if (i == 2) color = ImVec4(0.8f, 0.5f, 0.2f, 1.0f);
+                    
+                    std::string label = (currentStandings[i] == "player") ? "YOU (Player)" : "AI (" + currentStandings[i] + ")";
+                    ImGui::TextColored(color, "%d. %s", (int)i + 1, label.c_str());
+                }
+                ImGui::SetWindowFontScale(1.0f);
+            }
+            ImGui::End();
+        }
+
         // Race HUD
         {
             const ImVec2 display = ImGui::GetIO().DisplaySize;
@@ -1262,18 +1324,18 @@ class Playstate: public our::State {
                     // --- BOTTOM ROW: TIMES & PENALTIES ---
                     ImGui::SetWindowFontScale(1.5f);
                     ImGui::TextColored(ImVec4(0.8f, 0.8f, 0.8f, 1.0f), "TIME:");
-                    ImGui::SameLine(160.0f);
+                    ImGui::SameLine();
                     ImGui::TextColored(ImVec4(1.0f, 1.0f, 1.0f, 1.0f), "%.2f", currentLapTime);
 
                     if(bestLapTime > 0) {
                         ImGui::TextColored(ImVec4(0.8f, 0.8f, 0.8f, 1.0f), "BEST:");
-                        ImGui::SameLine(160.0f);
+                        ImGui::SameLine();
                         ImGui::TextColored(ImVec4(0.3f, 1.0f, 0.3f, 1.0f), "%.2f", bestLapTime);
                     }
                     
                     if(totalPenaltyTime > 0) {
                         ImGui::TextColored(ImVec4(1.0f, 0.2f, 0.2f, 1.0f), "PENALTY:");
-                        ImGui::SameLine(160.0f);
+                        ImGui::SameLine();
                         ImGui::TextColored(ImVec4(1.0f, 0.2f, 0.2f, 1.0f), "+%.1fs", totalPenaltyTime);
                     }
                     ImGui::SetWindowFontScale(1.0f);
@@ -1283,7 +1345,19 @@ class Playstate: public our::State {
                     ImGui::Separator();
                     ImGui::SetWindowFontScale(2.0f);
                     ImGui::TextColored(ImVec4(0.2f, 1.0f, 0.2f, 1.0f), "RACE FINISHED!");
-                    ImGui::Text("Final Rank: %d", playerPosition);
+                    
+                    ImGui::SetWindowFontScale(1.2f);
+                    ImGui::TextColored(ImVec4(1.0f, 1.0f, 1.0f, 1.0f), "FINAL RESULTS:");
+                    
+                    for (size_t i = 0; i < currentStandings.size(); ++i) {
+                        ImVec4 color = ImVec4(1.0f, 1.0f, 1.0f, 1.0f);
+                        if (i == 0) color = ImVec4(1.0f, 0.84f, 0.0f, 1.0f);
+                        else if (i == 1) color = ImVec4(0.75f, 0.75f, 0.75f, 1.0f);
+                        else if (i == 2) color = ImVec4(0.8f, 0.5f, 0.2f, 1.0f);
+                        
+                        std::string label = (currentStandings[i] == "player") ? "YOU (Player)" : "AI (" + currentStandings[i] + ")";
+                        ImGui::TextColored(color, "%d. %s", (int)i + 1, label.c_str());
+                    }
                     ImGui::SetWindowFontScale(1.0f);
                 }
             }
