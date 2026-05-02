@@ -1,6 +1,16 @@
 # Super Awesome Formula Game
 
-### Download this folder and run the executable to play the game
+### 🐧 Linux (Fedora/DNF) Installation
+
+Run the following command to install the game:
+
+```bash
+sudo dnf install https://github.com/Youssefwafa7/super-awesome-formula-game/releases/download/v1/super-awesome-formula-game-1.0-1.fc43.x86_64.rpm
+```
+
+### 📥 Manual Download
+
+Download this folder and run the executable to play the game:
 
 https://drive.google.com/drive/folders/1ksuXdJ4A73SVjLVRluYE-Bz5xrlXAsIb?usp=drive_link
 
