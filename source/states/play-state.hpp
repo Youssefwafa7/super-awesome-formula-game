@@ -1455,10 +1455,10 @@ class Playstate: public our::State {
 
             int aiCount = isMulti ? 0 : (int)aiRacers.size();
             if (isMulti) {
-                // Top screen is Player 2
-                drawRaceHUD("Player 2", p2Stats, ImVec2(display.x * 0.5f, 10.0f), aiCount);
-                // Bottom screen is Player 1
-                drawRaceHUD("Player 1", p1Stats, ImVec2(display.x * 0.5f, display.y * 0.5f + 10.0f), aiCount);
+                // Top screen is Player 1
+                drawRaceHUD("Player 1", p1Stats, ImVec2(display.x * 0.5f, 10.0f), aiCount);
+                // Bottom screen is Player 2
+                drawRaceHUD("Player 2", p2Stats, ImVec2(display.x * 0.5f, display.y * 0.5f + 10.0f), aiCount);
             } else {
                 drawRaceHUD("Player 1", p1Stats, ImVec2(display.x * 0.5f, 30.0f), aiCount);
             }
@@ -1553,10 +1553,10 @@ class Playstate: public our::State {
             };
 
             if (isMulti) {
-                // Top screen (P2)
-                drawSpeedometer("Speed P2", findEntityByName(world, "player2"), ImVec2(display.x - 70.0f, display.y * 0.5f - 70.0f));
-                // Bottom screen (P1)
-                drawSpeedometer("Speed P1", findEntityByName(world, "player"), ImVec2(display.x - 70.0f, display.y - 70.0f));
+                // Top screen (P1)
+                drawSpeedometer("Speed P1", findEntityByName(world, "player"), ImVec2(display.x - 70.0f, display.y * 0.5f - 70.0f));
+                // Bottom screen (P2)
+                drawSpeedometer("Speed P2", findEntityByName(world, "player2"), ImVec2(display.x - 70.0f, display.y - 70.0f));
             } else {
                 drawSpeedometer("Speedometer", findEntityByName(world, "player"), ImVec2(display.x - 150.0f, display.y - 150.0f));
             }
