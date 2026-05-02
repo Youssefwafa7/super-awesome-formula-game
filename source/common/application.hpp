@@ -63,6 +63,11 @@ namespace our {
         std::string selectedCarPreset;
         std::string selectedTrackPreset;
 
+        // Post-processing settings
+        bool enableVignette = true;
+        bool enableChromaticAberration = true;
+        bool enableSpeedEffects = true;
+
         std::unordered_map<std::string, State*> states;   // This will store all the states that the application can run
         State * currentState = nullptr;         // This will store the current scene that is being run
         State * nextState = nullptr;            // If it is requested to go to another scene, this will contain a pointer to that scene
@@ -143,6 +148,13 @@ namespace our {
         bool isMultiplayer = false;
         void setIsMultiplayer(bool value){ isMultiplayer = value; }
         [[nodiscard]] bool getIsMultiplayer() const { return isMultiplayer; }
+        // Post-processing settings
+        void setVignetteEnabled(bool enabled) { enableVignette = enabled; }
+        void setChromaticAberrationEnabled(bool enabled) { enableChromaticAberration = enabled; }
+        void setSpeedEffectsEnabled(bool enabled) { enableSpeedEffects = enabled; }
+        [[nodiscard]] bool isVignetteEnabled() const { return enableVignette; }
+        [[nodiscard]] bool isChromaticAberrationEnabled() const { return enableChromaticAberration; }
+        [[nodiscard]] bool isSpeedEffectsEnabled() const { return enableSpeedEffects; }
 
         // Get the size of the frame buffer of the window in pixels.
         glm::ivec2 getFrameBufferSize() {

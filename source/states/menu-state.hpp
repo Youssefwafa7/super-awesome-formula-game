@@ -44,7 +44,8 @@ enum class MenuScreen
     MAIN_MENU,
     MODE_SELECT,
     TRACK_SELECT,
-    CAR_SELECT
+    CAR_SELECT,
+    SETTINGS
 };
 
 class Menustate : public our::State
@@ -75,6 +76,11 @@ class Menustate : public our::State
 
     int selectedIndex = 0; 
     bool keyboardNavActive = false; 
+
+    GLFWgamepadstate prevGamepadState{};
+    bool hasPrevGamepadState = false;
+    float prevLeftX = 0.0f;
+    float prevLeftY = 0.0f;
 
     static ImVec4 kBgColor() { return ImVec4(0.04f, 0.04f, 0.04f, 0.00f); }
     static ImVec4 kRedAccent() { return ImVec4(0.91f, 0.00f, 0.18f, 1.00f); }
@@ -248,7 +254,14 @@ class Menustate : public our::State
             }
             ImGui::Dummy(ImVec2(0, 8));
 
-            if (buttonCentered("EXIT", ImVec2(260, 55), keyboardNavActive && selectedIndex == 1))
+            if (buttonCentered("SETTINGS", ImVec2(260, 55), keyboardNavActive && selectedIndex == 1))
+            {
+                currentScreen = MenuScreen::SETTINGS;
+                selectedIndex = 0;
+            }
+            ImGui::Dummy(ImVec2(0, 8));
+
+            if (buttonCentered("EXIT", ImVec2(260, 55), keyboardNavActive && selectedIndex == 2))
             {
                 getApp()->close();
             }
@@ -527,6 +540,64 @@ class Menustate : public our::State
         popF1Theme(colors);
     }
 
+    void renderSettings()
+    {
+        const ImVec2 display = ImGui::GetIO().DisplaySize;
+        ImGui::SetNextWindowPos(ImVec2(0, 0));
+        ImGui::SetNextWindowSize(display);
+
+        int colors = pushF1Theme();
+        ImGuiWindowFlags flags = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove |
+                                 ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoNav;
+        if (ImGui::Begin("##Settings", nullptr, flags))
+        {
+            float contentH = 50.0f + 30.0f + 55.0f + 55.0f + 55.0f + 40.0f + 45.0f;
+            ImGui::SetCursorPosY((display.y - contentH) * 0.5f);
+
+            if(headingFont) ImGui::PushFont(headingFont);
+            textCenteredGlow("SETTINGS", kRedAccent());
+            if(headingFont) ImGui::PopFont();
+            if(bodyFont) ImGui::PushFont(bodyFont);
+            ImGui::Dummy(ImVec2(0, 30));
+
+            bool isVignetteSelected = keyboardNavActive && selectedIndex == 0;
+            std::string vignetteLabel = getApp()->isVignetteEnabled() ? "VIGNETTE: ON" : "VIGNETTE: OFF";
+            if (buttonCentered(vignetteLabel.c_str(), ImVec2(380, 60), isVignetteSelected))
+            {
+                getApp()->setVignetteEnabled(!getApp()->isVignetteEnabled());
+            }
+            ImGui::Dummy(ImVec2(0, 8));
+
+            bool isCASelected = keyboardNavActive && selectedIndex == 1;
+            std::string caLabel = getApp()->isChromaticAberrationEnabled() ? "CHROMATIC ABERRATION: ON" : "CHROMATIC ABERRATION: OFF";
+            if (buttonCentered(caLabel.c_str(), ImVec2(380, 60), isCASelected))
+            {
+                getApp()->setChromaticAberrationEnabled(!getApp()->isChromaticAberrationEnabled());
+            }
+            ImGui::Dummy(ImVec2(0, 8));
+
+            bool isSpeedEffectsSelected = keyboardNavActive && selectedIndex == 2;
+            std::string speedEffectsLabel = getApp()->isSpeedEffectsEnabled() ? "SPEED EFFECTS (FOV + BLUR): ON" : "SPEED EFFECTS (FOV + BLUR): OFF";
+            if (buttonCentered(speedEffectsLabel.c_str(), ImVec2(380, 60), isSpeedEffectsSelected))
+            {
+                getApp()->setSpeedEffectsEnabled(!getApp()->isSpeedEffectsEnabled());
+            }
+
+            ImGui::Dummy(ImVec2(0, 40));
+
+            bool isBackSelected = keyboardNavActive && selectedIndex == 3;
+            if (buttonCentered("< BACK", ImVec2(260, 45), isBackSelected))
+            {
+                currentScreen = MenuScreen::MAIN_MENU;
+                selectedIndex = 0;
+            }
+
+            if(bodyFont) ImGui::PopFont();
+        }
+        ImGui::End();
+        popF1Theme(colors);
+    }
+
     void loadFonts() {
         static bool fontsLoaded = false;
         if(fontsLoaded) return;
@@ -623,6 +694,7 @@ class Menustate : public our::State
         case MenuScreen::MODE_SELECT: renderModeSelect(); break;
         case MenuScreen::TRACK_SELECT: renderTrackSelect(); break;
         case MenuScreen::CAR_SELECT: renderCarSelect(); break;
+        case MenuScreen::SETTINGS: renderSettings(); break;
         }
     }
 
@@ -632,20 +704,67 @@ class Menustate : public our::State
         int itemCount = 0;
         int presetsCount = (currentScreen == MenuScreen::TRACK_SELECT) ? NUM_TRACK_PRESETS : NUM_CAR_PRESETS;
 
+        bool padUp = false;
+        bool padDown = false;
+        bool padLeft = false;
+        bool padRight = false;
+        bool padConfirm = false;
+        bool padBack = false;
+
+        GLFWgamepadstate padState;
+        if(glfwGetGamepadState(GLFW_JOYSTICK_1, &padState)){
+            const bool havePrev = hasPrevGamepadState;
+            if(!hasPrevGamepadState){
+                prevGamepadState = padState;
+                prevLeftX = padState.axes[GLFW_GAMEPAD_AXIS_LEFT_X];
+                prevLeftY = padState.axes[GLFW_GAMEPAD_AXIS_LEFT_Y];
+                hasPrevGamepadState = true;
+            }
+
+            auto justPressed = [&](int button){
+                return padState.buttons[button] == GLFW_PRESS && (!havePrev || prevGamepadState.buttons[button] == GLFW_RELEASE);
+            };
+
+            padUp = justPressed(GLFW_GAMEPAD_BUTTON_DPAD_UP);
+            padDown = justPressed(GLFW_GAMEPAD_BUTTON_DPAD_DOWN);
+            padLeft = justPressed(GLFW_GAMEPAD_BUTTON_DPAD_LEFT);
+            padRight = justPressed(GLFW_GAMEPAD_BUTTON_DPAD_RIGHT);
+            padConfirm = justPressed(GLFW_GAMEPAD_BUTTON_A);
+            padBack = justPressed(GLFW_GAMEPAD_BUTTON_B);
+
+            const float axisDeadzone = 0.5f;
+            const float lx = padState.axes[GLFW_GAMEPAD_AXIS_LEFT_X];
+            const float ly = padState.axes[GLFW_GAMEPAD_AXIS_LEFT_Y];
+
+            if(lx < -axisDeadzone && (!havePrev || prevLeftX >= -axisDeadzone)) padLeft = true;
+            if(lx > axisDeadzone && (!havePrev || prevLeftX <= axisDeadzone)) padRight = true;
+            if(ly < -axisDeadzone && (!havePrev || prevLeftY >= -axisDeadzone)) padUp = true;
+            if(ly > axisDeadzone && (!havePrev || prevLeftY <= axisDeadzone)) padDown = true;
+
+            prevGamepadState = padState;
+            prevLeftX = lx;
+            prevLeftY = ly;
+        } else {
+            hasPrevGamepadState = false;
+            prevLeftX = 0.0f;
+            prevLeftY = 0.0f;
+        }
+
         switch (currentScreen)
         {
-        case MenuScreen::MAIN_MENU: itemCount = 2; break;
+        case MenuScreen::MAIN_MENU: itemCount = 3; break;
         case MenuScreen::MODE_SELECT: itemCount = 3; break;
         case MenuScreen::TRACK_SELECT: itemCount = 2 + NUM_TRACK_PRESETS; break;
         case MenuScreen::CAR_SELECT: itemCount = 2 + NUM_CAR_PRESETS; break;
+        case MenuScreen::SETTINGS: itemCount = 4; break;
         }
 
         bool isSpecialScreen = (currentScreen == MenuScreen::TRACK_SELECT || currentScreen == MenuScreen::CAR_SELECT);
 
-        if (keyboard.justPressed(GLFW_KEY_DOWN) || keyboard.justPressed(GLFW_KEY_UP)) {
-            bool down = keyboard.justPressed(GLFW_KEY_DOWN);
+        if (keyboard.justPressed(GLFW_KEY_DOWN) || keyboard.justPressed(GLFW_KEY_UP) || padDown || padUp) {
+            bool down = keyboard.justPressed(GLFW_KEY_DOWN) || padDown;
             keyboardNavActive = true;
-            if (currentScreen == MenuScreen::MAIN_MENU || currentScreen == MenuScreen::MODE_SELECT) {
+            if (currentScreen == MenuScreen::MAIN_MENU || currentScreen == MenuScreen::MODE_SELECT || currentScreen == MenuScreen::SETTINGS) {
                 if ((down && selectedIndex < itemCount - 1) || (!down && selectedIndex > 0))
                     selectedIndex += down ? 1 : -1;
             } else if (isSpecialScreen) {
@@ -654,8 +773,8 @@ class Menustate : public our::State
             }
         }
 
-        if (isSpecialScreen && (keyboard.justPressed(GLFW_KEY_RIGHT) || keyboard.justPressed(GLFW_KEY_LEFT))) {
-            bool right = keyboard.justPressed(GLFW_KEY_RIGHT);
+        if (isSpecialScreen && (keyboard.justPressed(GLFW_KEY_RIGHT) || keyboard.justPressed(GLFW_KEY_LEFT) || padRight || padLeft)) {
+            bool right = keyboard.justPressed(GLFW_KEY_RIGHT) || padRight;
             int rowStart = (selectedIndex < presetsCount) ? 0 : presetsCount;
             int rowEnd   = (selectedIndex < presetsCount) ? presetsCount : itemCount;
             int rowSize  = rowEnd - rowStart;
@@ -666,14 +785,15 @@ class Menustate : public our::State
             selectedIndex = rowStart + localIdx;
         }
 
-        if (keyboard.justPressed(GLFW_KEY_ENTER) || keyboard.justPressed(GLFW_KEY_SPACE))
+        if (keyboard.justPressed(GLFW_KEY_ENTER) || keyboard.justPressed(GLFW_KEY_SPACE) || padConfirm)
         {
             keyboardNavActive = true;
             switch (currentScreen)
             {
             case MenuScreen::MAIN_MENU:
                 if (selectedIndex == 0) { currentScreen = MenuScreen::MODE_SELECT; selectedIndex = 0; }
-                else if (selectedIndex == 1) getApp()->close();
+                else if (selectedIndex == 1) { currentScreen = MenuScreen::SETTINGS; selectedIndex = 0; }
+                else if (selectedIndex == 2) getApp()->close();
                 break;
             case MenuScreen::MODE_SELECT:
                 if (selectedIndex == 0) { getApp()->setIsMultiplayer(false); currentScreen = MenuScreen::TRACK_SELECT; selectedIndex = 0; }
@@ -697,14 +817,21 @@ class Menustate : public our::State
                     getApp()->changeState("loading"); 
                 }
                 break;
+            case MenuScreen::SETTINGS:
+                if (selectedIndex == 0) getApp()->setVignetteEnabled(!getApp()->isVignetteEnabled());
+                else if (selectedIndex == 1) getApp()->setChromaticAberrationEnabled(!getApp()->isChromaticAberrationEnabled());
+                else if (selectedIndex == 2) getApp()->setSpeedEffectsEnabled(!getApp()->isSpeedEffectsEnabled());
+                else if (selectedIndex == 3) { currentScreen = MenuScreen::MAIN_MENU; selectedIndex = 0; }
+                break;
             }
         }
 
-        if (keyboard.justPressed(GLFW_KEY_ESCAPE))
+        if (keyboard.justPressed(GLFW_KEY_ESCAPE) || padBack)
         {
+            keyboardNavActive = true;
             if (currentScreen == MenuScreen::CAR_SELECT) currentScreen = MenuScreen::TRACK_SELECT;
             else if (currentScreen == MenuScreen::TRACK_SELECT) currentScreen = MenuScreen::MODE_SELECT;
-            else if (currentScreen == MenuScreen::MODE_SELECT) currentScreen = MenuScreen::MAIN_MENU;
+            else if (currentScreen == MenuScreen::MODE_SELECT || currentScreen == MenuScreen::SETTINGS) currentScreen = MenuScreen::MAIN_MENU;
             else getApp()->close();
         }
 
