@@ -266,6 +266,11 @@ namespace our {
                 else opaqueCommands.push_back(command);
             }
         }
+        
+        // Sort cameras by name to ensure consistent viewport mapping (e.g., camera2 < main_camera)
+        std::sort(cameras.begin(), cameras.end(), [](CameraComponent* a, CameraComponent* b){
+            return a->getOwner()->name < b->getOwner()->name;
+        });
 
         if(enableSunLight && sunMaterial && (int)lights.size() < MAX_LIGHTS){
             UploadedLight sun;
@@ -308,7 +313,6 @@ namespace our {
             } else {
                 glViewport(0, 0, windowSize.x, windowSize.y);
             }
-
             auto M = camera->getOwner()->getLocalToWorldMatrix();
             glm::vec3 eye = glm::vec3(M * glm::vec4(0, 0, 0, 1));
             glm::vec3 center = glm::vec3(M * glm::vec4(0, 0, -1, 1));
