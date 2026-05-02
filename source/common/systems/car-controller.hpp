@@ -77,7 +77,7 @@ namespace our {
             const float distToTarget = glm::length(toTarget2D);
 
             if(distToTarget < 0.01f){
-                if (cpIdx + 1 >= numCP) car->currentLap++;
+                if (cpIdx + 1 >= numCP && !car->alreadyFinished) car->currentLap++;
                 car->nextCheckpointIndex = (cpIdx + 1) % numCP;
                 car->crossedStartLine = true;
                 outThrottle = 0.3f;
@@ -200,7 +200,7 @@ namespace our {
             // With dense checkpoints (~9 units apart), use a small radius.
             const float cpRadius = 4.0f + car->aiRandomSeed * 2.0f;
             if(distToTarget < cpRadius){
-                if (cpIdx + 1 >= numCP) car->currentLap++;
+                if (cpIdx + 1 >= numCP && !car->alreadyFinished) car->currentLap++;
                 car->nextCheckpointIndex = (cpIdx + 1) % numCP;
                 car->crossedStartLine = true;
             }
@@ -216,10 +216,15 @@ namespace our {
                     glm::vec2(cpNext.x, cpNext.z)
                 );
                 if(distToNext < distToCurrent && distToCurrent > 3.0f){
-                    if (cpIdx + 1 >= numCP) car->currentLap++;
+                    if (cpIdx + 1 >= numCP && !car->alreadyFinished) car->currentLap++;
                     car->nextCheckpointIndex = (cpIdx + 1) % numCP;
                     car->crossedStartLine = true;
                 }
+            }
+            
+            // ── 8. Finishing Logic ──
+            if (car->alreadyFinished) {
+                outThrottle *= 0.3f; // Safely parade around track
             }
         }
 

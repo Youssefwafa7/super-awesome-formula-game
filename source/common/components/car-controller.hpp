@@ -62,6 +62,8 @@ namespace our {
         int nextCheckpointIndex = 0;          // next checkpoint to target
         int currentLap = 1;                   // current race lap
         bool crossedStartLine = false;        // true if the car has crossed the start line
+        bool alreadyFinished = false;         // true if the car has completed the total number of laps
+        int finishRank = 0;                   // final race position (1st, 2nd, etc.)
         int lastHitIdx = -1;                  // last checkpoint index hit
 
         float aiLateralOffset = 0.0f;         // slight offset from racing line center (avoids stacking)
