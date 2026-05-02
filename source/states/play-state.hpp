@@ -51,7 +51,10 @@ class Playstate: public our::State {
 
     bool freeRoaming = false;
     bool isPaused = false;
-    bool lastStartDown = false;
+    bool minimalHud = false;
+    int pauseMenuSelection = 0;
+    GLFWgamepadstate lastGamepadState;
+    bool gamepadNavActive = false;
 
     // ── Audio ──
     ma_engine audioEngine;
@@ -111,6 +114,9 @@ class Playstate: public our::State {
     std::string currentTrackId;
     float checkpointRadius = 25.0f;
     std::string lastCheckpointStatus;
+    
+    float baseFovY = -1.0f;
+    float smoothedSpeedFactor = 0.0f;
 
     // Number of AI cars to spawn
     static constexpr int kNumAICars = 2;
@@ -937,7 +943,7 @@ class Playstate: public our::State {
         chaseCameraSystem.enter(getApp());
         // Then we initialize the renderer
         auto size = getApp()->getFrameBufferSize();
-        renderer.initialize(size, config["renderer"]);
+        renderer.initialize(size, config["renderer"], getApp()->getIsMultiplayer());
 
         // Initialize Audio Engine and start music
         if (ma_engine_init(NULL, &audioEngine) == MA_SUCCESS) {
@@ -998,25 +1004,30 @@ class Playstate: public our::State {
 
     void onDraw(double deltaTime) override {
         auto& keyboard = getApp()->getKeyboard();
-        bool startPressed = false;
-        GLFWgamepadstate gamepadState;
-        if (glfwGetGamepadState(GLFW_JOYSTICK_1, &gamepadState)) {
-            if (gamepadState.buttons[GLFW_GAMEPAD_BUTTON_START]) {
-                if (!lastStartDown) startPressed = true;
-                lastStartDown = true;
-            } else {
-                lastStartDown = false;
+        bool pauseJustPressed = keyboard.justPressed(GLFW_KEY_ESCAPE);
+
+        // Gamepad START button check
+        if (glfwJoystickIsGamepad(GLFW_JOYSTICK_1)) {
+            GLFWgamepadstate gamepadState;
+            if (glfwGetGamepadState(GLFW_JOYSTICK_1, &gamepadState)) {
+                if (gamepadState.buttons[GLFW_GAMEPAD_BUTTON_START] && !lastGamepadState.buttons[GLFW_GAMEPAD_BUTTON_START]) {
+                    pauseJustPressed = true;
+                }
+                lastGamepadState = gamepadState;
             }
         }
 
-        if(keyboard.justPressed(GLFW_KEY_ESCAPE) || startPressed){
+        if(pauseJustPressed){
             isPaused = !isPaused;
             if (isPaused) {
                 if (isEngineLoopLoaded) ma_sound_stop(&engineLoopSound);
+                pauseMenuSelection = 0; // Reset selection when pausing
+                gamepadNavActive = false; // Reset nav mode
             } else {
                 if (isEngineLoopLoaded) ma_sound_start(&engineLoopSound);
             }
         }
+
 
         if (isPaused) {
             renderer.render(&world);
@@ -1062,6 +1073,10 @@ class Playstate: public our::State {
         
         if(keyboard.justPressed(GLFW_KEY_N)){
             saveCheckpoint(false);
+        }
+
+        if(keyboard.justPressed(GLFW_KEY_P)){
+            minimalHud = !minimalHud;
         }
 
         // ── Auto-recording toggle (R key) ──
@@ -1120,6 +1135,33 @@ class Playstate: public our::State {
         
         wheelSpinSystem.update(&world, (float)deltaTime);
         cameraController.update(&world, (float)deltaTime);
+
+        // --- Post-Processing & FOV Updates ---
+        if (auto* player = findEntityByName(world, "player")) {
+            if (auto* car = player->getComponent<our::CarControllerComponent>()) {
+                float targetSpeedFactor = std::clamp(std::abs(car->speed) / car->maxSpeed, 0.0f, 1.0f);
+                
+                // Heavily smooth the speed factor to eliminate physics/collision jitter
+                float alpha = 1.0f - std::exp(-2.0f * (float)deltaTime); 
+                smoothedSpeedFactor += (targetSpeedFactor - smoothedSpeedFactor) * alpha;
+
+                bool speedEffects = getApp()->isSpeedEffectsEnabled();
+
+                // Set renderer uniforms
+                renderer.speedFactor = speedEffects ? smoothedSpeedFactor : 0.0f;
+                renderer.enableVignette = getApp()->isVignetteEnabled();
+                renderer.enableChromaticAberration = getApp()->isChromaticAberrationEnabled();
+
+                // Dynamic FOV increase
+                if (auto* cameraEntity = findEntityByName(world, "main_camera")) {
+                    if (auto* camera = cameraEntity->getComponent<our::CameraComponent>()) {
+                        if (baseFovY < 0.0f) baseFovY = camera->fovY;
+                        camera->fovY = baseFovY + (speedEffects ? (smoothedSpeedFactor * 0.4f) : 0.0f); // ~20 degrees increase
+                    }
+                }
+            }
+        }
+
         // And finally we use the renderer system to draw the scene
         renderer.render(&world);
     }
@@ -1132,6 +1174,38 @@ class Playstate: public our::State {
             ImGui::SetNextWindowFocus();
             ImGuiWindowFlags flags = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoSavedSettings;
             
+            // Handle controller navigation
+            if (glfwJoystickIsGamepad(GLFW_JOYSTICK_1)) {
+                GLFWgamepadstate gamepadState;
+                if (glfwGetGamepadState(GLFW_JOYSTICK_1, &gamepadState)) {
+                    bool dpadUp = gamepadState.buttons[GLFW_GAMEPAD_BUTTON_DPAD_UP] && !lastGamepadState.buttons[GLFW_GAMEPAD_BUTTON_DPAD_UP];
+                    bool dpadDown = gamepadState.buttons[GLFW_GAMEPAD_BUTTON_DPAD_DOWN] && !lastGamepadState.buttons[GLFW_GAMEPAD_BUTTON_DPAD_DOWN];
+                    bool stickUp = gamepadState.axes[GLFW_GAMEPAD_AXIS_LEFT_Y] < -0.5f && lastGamepadState.axes[GLFW_GAMEPAD_AXIS_LEFT_Y] >= -0.5f;
+                    bool stickDown = gamepadState.axes[GLFW_GAMEPAD_AXIS_LEFT_Y] > 0.5f && lastGamepadState.axes[GLFW_GAMEPAD_AXIS_LEFT_Y] <= 0.5f;
+
+                    if (dpadUp || stickUp) {
+                        pauseMenuSelection = (pauseMenuSelection - 1 + 3) % 3;
+                        gamepadNavActive = true;
+                    }
+                    if (dpadDown || stickDown) {
+                        pauseMenuSelection = (pauseMenuSelection + 1) % 3;
+                        gamepadNavActive = true;
+                    }
+
+                    if (gamepadState.buttons[GLFW_GAMEPAD_BUTTON_A] && !lastGamepadState.buttons[GLFW_GAMEPAD_BUTTON_A]) {
+                        if (pauseMenuSelection == 0) { // Resume
+                            isPaused = false;
+                        } else if (pauseMenuSelection == 1) { // Restart
+                            getApp()->changeState("play");
+                        } else if (pauseMenuSelection == 2) { // Quit
+                            getApp()->changeState("menu");
+                        }
+                    }
+                    lastGamepadState = gamepadState;
+                }
+            }
+
+
             ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.1f, 0.1f, 0.1f, 0.9f));
             if (ImGui::Begin("Pause Menu", nullptr, flags)) {
                 ImGui::SetWindowFontScale(2.0f);
@@ -1150,6 +1224,9 @@ class Playstate: public our::State {
                 float btnX = (ImGui::GetWindowWidth() - btnWidth) * 0.5f;
 
                 ImGui::SetCursorPosX(btnX);
+
+                // -- Resume Button --
+                if (pauseMenuSelection == 0 && gamepadNavActive) ImGui::PushStyleColor(ImGuiCol_Button, ImGui::GetStyle().Colors[ImGuiCol_ButtonHovered]);
                 if (ImGui::Button("Resume", ImVec2(btnWidth, btnHeight))) {
                     isPaused = false;
                     if (isEngineLoopLoaded) ma_sound_start(&engineLoopSound);
@@ -1163,18 +1240,31 @@ class Playstate: public our::State {
                         ma_sound_set_volume(&engineLoopSound, isEngineMuted ? 0.0f : 2.0f);
                     }
                 }
+                if (ImGui::IsItemHovered()) pauseMenuSelection = 0;
+                if (pauseMenuSelection == 0 && gamepadNavActive) ImGui::PopStyleColor();
 
                 ImGui::Dummy(ImVec2(0.0f, 10.0f));
                 ImGui::SetCursorPosX(btnX);
+
+                // -- Restart Button --
+                if (pauseMenuSelection == 1 && gamepadNavActive) ImGui::PushStyleColor(ImGuiCol_Button, ImGui::GetStyle().Colors[ImGuiCol_ButtonHovered]);
                 if (ImGui::Button("Restart", ImVec2(btnWidth, btnHeight))) {
-                    getApp()->changeState("loading");
+                    getApp()->changeState("play");
                 }
+                if (ImGui::IsItemHovered()) pauseMenuSelection = 1;
+                if (pauseMenuSelection == 1 && gamepadNavActive) ImGui::PopStyleColor();
 
                 ImGui::Dummy(ImVec2(0.0f, 10.0f));
                 ImGui::SetCursorPosX(btnX);
+
+                // -- Quit Button --
+                if (pauseMenuSelection == 2 && gamepadNavActive) ImGui::PushStyleColor(ImGuiCol_Button, ImGui::GetStyle().Colors[ImGuiCol_ButtonHovered]);
                 if (ImGui::Button("Quit to Menu", ImVec2(btnWidth, btnHeight))) {
                     getApp()->changeState("menu");
                 }
+                if (ImGui::IsItemHovered()) pauseMenuSelection = 2;
+                if (pauseMenuSelection == 2 && gamepadNavActive) ImGui::PopStyleColor();
+
             }
             ImGui::End();
             ImGui::PopStyleColor();
@@ -1192,45 +1282,48 @@ class Playstate: public our::State {
         flags |= ImGuiWindowFlags_NoFocusOnAppearing;
 
         if(ImGui::Begin("Coordinates", nullptr, flags)){
-            our::Entity* target = freeRoaming ? findEntityByName(world, "main_camera") : findEntityByName(world, "player");
-            if(target){
-                const glm::mat4 M = target->getLocalToWorldMatrix();
-                const glm::vec3 p = glm::vec3(M * glm::vec4(0, 0, 0, 1));
-                const float yawDeg = glm::degrees(target->localTransform.rotation.y);
-                if(freeRoaming) ImGui::TextColored(ImVec4(1.0f, 1.0f, 0.2f, 1.0f), "[FREE ROAM]");
-                ImGui::Text("pos  x %.2f  y %.2f  z %.2f", p.x, p.y, p.z);
-                ImGui::Text("yaw  %.1f deg", yawDeg);
-                ImGui::Separator();
-                ImGui::Text("FPS: %.1f", ImGui::GetIO().Framerate);
-            } else {
-                ImGui::TextUnformatted("target not found");
-                ImGui::Text("FPS: %.1f", ImGui::GetIO().Framerate);
+            if(!minimalHud) {
+                our::Entity* target = freeRoaming ? findEntityByName(world, "main_camera") : findEntityByName(world, "player");
+                if(target){
+                    const glm::mat4 M = target->getLocalToWorldMatrix();
+                    const glm::vec3 p = glm::vec3(M * glm::vec4(0, 0, 0, 1));
+                    const float yawDeg = glm::degrees(target->localTransform.rotation.y);
+                    if(freeRoaming) ImGui::TextColored(ImVec4(1.0f, 1.0f, 0.2f, 1.0f), "[FREE ROAM]");
+                    ImGui::Text("pos  x %.2f  y %.2f  z %.2f", p.x, p.y, p.z);
+                    ImGui::Text("yaw  %.1f deg", yawDeg);
+                    ImGui::Separator();
+                } else {
+                    ImGui::TextUnformatted("target not found");
+                }
             }
+            ImGui::Text("FPS: %.1f", ImGui::GetIO().Framerate);
 
-            ImGui::Dummy(ImVec2(0.0f, 4.0f));
+            if(!minimalHud) {
+                ImGui::Dummy(ImVec2(0.0f, 4.0f));
 
-            // Simple 2D axis widget (world axes): +X right (red), +Y up-left (green), +Z down (blue)
-            const ImVec2 cursor = ImGui::GetCursorScreenPos();
-            const ImVec2 origin(cursor.x + 18.0f, cursor.y + 18.0f);
-            const float s = 28.0f;
+                // Simple 2D axis widget (world axes): +X right (red), +Y up-left (green), +Z down (blue)
+                const ImVec2 cursor = ImGui::GetCursorScreenPos();
+                const ImVec2 origin(cursor.x + 18.0f, cursor.y + 18.0f);
+                const float s = 28.0f;
 
-            ImDrawList* dl = ImGui::GetWindowDrawList();
-            dl->AddCircleFilled(origin, 2.5f, IM_COL32(255, 255, 255, 220));
+                ImDrawList* dl = ImGui::GetWindowDrawList();
+                dl->AddCircleFilled(origin, 2.5f, IM_COL32(255, 255, 255, 220));
 
-            const ImVec2 xEnd(origin.x + s, origin.y);
-            const ImVec2 zEnd(origin.x, origin.y + s);
-            const ImVec2 yEnd(origin.x + (-0.7f * s), origin.y + (-0.7f * s));
+                const ImVec2 xEnd(origin.x + s, origin.y);
+                const ImVec2 zEnd(origin.x, origin.y + s);
+                const ImVec2 yEnd(origin.x + (-0.7f * s), origin.y + (-0.7f * s));
 
-            dl->AddLine(origin, xEnd, IM_COL32(220, 60, 60, 255), 2.0f);
-            dl->AddLine(origin, yEnd, IM_COL32(60, 220, 60, 255), 2.0f);
-            dl->AddLine(origin, zEnd, IM_COL32(60, 120, 240, 255), 2.0f);
+                dl->AddLine(origin, xEnd, IM_COL32(220, 60, 60, 255), 2.0f);
+                dl->AddLine(origin, yEnd, IM_COL32(60, 220, 60, 255), 2.0f);
+                dl->AddLine(origin, zEnd, IM_COL32(60, 120, 240, 255), 2.0f);
 
-            dl->AddText(ImVec2(xEnd.x + 4.0f, xEnd.y - 8.0f), IM_COL32(220, 60, 60, 255), "X");
-            dl->AddText(ImVec2(yEnd.x - 8.0f, yEnd.y - 12.0f), IM_COL32(60, 220, 60, 255), "Y");
-            dl->AddText(ImVec2(zEnd.x + 4.0f, zEnd.y - 8.0f), IM_COL32(60, 120, 240, 255), "Z");
+                dl->AddText(ImVec2(xEnd.x + 4.0f, xEnd.y - 8.0f), IM_COL32(220, 60, 60, 255), "X");
+                dl->AddText(ImVec2(yEnd.x - 8.0f, yEnd.y - 12.0f), IM_COL32(60, 220, 60, 255), "Y");
+                dl->AddText(ImVec2(zEnd.x + 4.0f, zEnd.y - 8.0f), IM_COL32(60, 120, 240, 255), "Z");
 
-            // Reserve space for the widget so the window sizes correctly.
-            ImGui::Dummy(ImVec2(2.0f * s, 1.4f * s));
+                // Reserve space for the widget so the window sizes correctly.
+                ImGui::Dummy(ImVec2(2.0f * s, 1.4f * s));
+            }
         }
         ImGui::End();
 
@@ -1263,7 +1356,7 @@ class Playstate: public our::State {
         }
 
         // Top-right collision debug HUD.
-        {
+        if (!minimalHud) {
             const ImVec2 display = ImGui::GetIO().DisplaySize;
 
             ImGui::SetNextWindowPos(ImVec2(std::max(10.0f, display.x - 320.0f), 10.0f), ImGuiCond_Always);
@@ -1295,7 +1388,7 @@ class Playstate: public our::State {
         }
 
         // Checkpoint System HUD
-        {
+        if (!minimalHud) {
             const ImVec2 display = ImGui::GetIO().DisplaySize;
             ImGui::SetNextWindowPos(ImVec2(std::max(10.0f, display.x - 320.0f), 300.0f), ImGuiCond_FirstUseEver);
             ImGui::SetNextWindowBgAlpha(0.35f);

@@ -1,3 +1,4 @@
+
 #include "forward-renderer.hpp"
 #include "../mesh/mesh-utils.hpp"
 #include "../texture/texture-utils.hpp"
@@ -30,7 +31,7 @@ namespace our {
         return dir / len;
     }
 
-    void ForwardRenderer::initialize(glm::ivec2 windowSize, const nlohmann::json& config){
+    void ForwardRenderer::initialize(glm::ivec2 windowSize, const nlohmann::json& config, bool isMultiplayer){
         // First, we store the window size for later use
         this->windowSize = windowSize;
 
@@ -142,6 +143,24 @@ namespace our {
             glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, colorTarget->getOpenGLName(), 0);
             glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, depthTarget->getOpenGLName(), 0);
             glBindFramebuffer(GL_FRAMEBUFFER, 0);
+
+            // --- MSAA FBO (renderbuffer-backed, dynamic MSAA for performance) ---
+            const int msaaSamples = isMultiplayer ? 2 : 4;
+            glGenFramebuffers(1, &msaaFrameBuffer);
+            glBindFramebuffer(GL_FRAMEBUFFER, msaaFrameBuffer);
+
+            glGenRenderbuffers(1, &msaaColorRenderBuffer);
+            glBindRenderbuffer(GL_RENDERBUFFER, msaaColorRenderBuffer);
+            glRenderbufferStorageMultisample(GL_RENDERBUFFER, msaaSamples, GL_RGBA8, windowSize.x, windowSize.y);
+            glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_RENDERBUFFER, msaaColorRenderBuffer);
+
+            glGenRenderbuffers(1, &msaaDepthRenderBuffer);
+            glBindRenderbuffer(GL_RENDERBUFFER, msaaDepthRenderBuffer);
+            glRenderbufferStorageMultisample(GL_RENDERBUFFER, msaaSamples, GL_DEPTH_COMPONENT24, windowSize.x, windowSize.y);
+            glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER, msaaDepthRenderBuffer);
+
+            glBindFramebuffer(GL_FRAMEBUFFER, 0);
+
             glGenVertexArrays(1, &postProcessVertexArray);
             Sampler* postprocessSampler = new Sampler();
             postprocessSampler->set(GL_TEXTURE_MIN_FILTER, GL_LINEAR);
@@ -177,6 +196,11 @@ namespace our {
         }
         if(postprocessMaterial){
             glDeleteFramebuffers(1, &postprocessFrameBuffer);
+            if(msaaFrameBuffer) {
+                glDeleteFramebuffers(1, &msaaFrameBuffer);
+                glDeleteRenderbuffers(1, &msaaColorRenderBuffer);
+                glDeleteRenderbuffers(1, &msaaDepthRenderBuffer);
+            }
             glDeleteVertexArrays(1, &postProcessVertexArray);
             delete colorTarget;
             delete depthTarget;
@@ -262,7 +286,10 @@ namespace our {
         glClearDepth(1.0f);
 
         if(postprocessMaterial){
-            glBindFramebuffer(GL_FRAMEBUFFER, postprocessFrameBuffer);
+            if(msaaFrameBuffer)
+                glBindFramebuffer(GL_FRAMEBUFFER, msaaFrameBuffer);
+            else
+                glBindFramebuffer(GL_FRAMEBUFFER, postprocessFrameBuffer);
         } else {
             glBindFramebuffer(GL_FRAMEBUFFER, 0);
         }
@@ -346,9 +373,21 @@ namespace our {
 
         // Apply postprocessing once at the end
         if(postprocessMaterial){
+            // Resolve MSAA: blit the multisampled FBO into the resolve (texture-backed) FBO
+            if(msaaFrameBuffer) {
+                glBindFramebuffer(GL_READ_FRAMEBUFFER, msaaFrameBuffer);
+                glBindFramebuffer(GL_DRAW_FRAMEBUFFER, postprocessFrameBuffer);
+                glBlitFramebuffer(0, 0, windowSize.x, windowSize.y,
+                                  0, 0, windowSize.x, windowSize.y,
+                                  GL_COLOR_BUFFER_BIT, GL_LINEAR);
+            }
+
             glBindFramebuffer(GL_FRAMEBUFFER, 0);
             postprocessMaterial->setup();
             postprocessMaterial->shader->set("transform", glm::mat4(1.0f));
+            postprocessMaterial->shader->set("enable_vignette", (int)enableVignette);
+            postprocessMaterial->shader->set("enable_chromatic_aberration", (int)enableChromaticAberration);
+            postprocessMaterial->shader->set("speed_factor", speedFactor);
             glBindVertexArray(postProcessVertexArray);
             glViewport(0, 0, windowSize.x, windowSize.y);
             glDrawArrays(GL_TRIANGLES, 0, 3);

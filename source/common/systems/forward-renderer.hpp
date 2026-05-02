@@ -58,14 +58,25 @@ namespace our
         GLuint postprocessFrameBuffer, postProcessVertexArray;
         Texture2D *colorTarget, *depthTarget;
         TexturedMaterial* postprocessMaterial;
+        // MSAA resolve FBO (scene renders here with multisampling, then blits to colorTarget)
+        GLuint msaaFrameBuffer = 0;
+        GLuint msaaColorRenderBuffer = 0;
+        GLuint msaaDepthRenderBuffer = 0;
 
+    public:
+        // Post-processing settings
+        bool enableVignette = true;
+        bool enableChromaticAberration = true;
+        float speedFactor = 0.0f;
+
+    private:
         // Global ambient (set from renderer config)
         glm::vec3 ambientColor = glm::vec3(0.02f, 0.02f, 0.03f);
         float ambientIntensity = 1.0f;
     public:
         // Initialize the renderer including the sky and the Postprocessing objects.
         // windowSize is the width & height of the window (in pixels).
-        void initialize(glm::ivec2 windowSize, const nlohmann::json& config);
+        void initialize(glm::ivec2 windowSize, const nlohmann::json& config, bool isMultiplayer = false);
         // Clean up the renderer
         void destroy();
         // This function should be called every frame to draw the given world
